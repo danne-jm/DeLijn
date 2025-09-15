@@ -1,0 +1,61 @@
+package com.danieljm.delijn.di
+
+import com.danieljm.delijn.data.local.AppDatabase
+import com.danieljm.delijn.data.local.dao.BusDao
+import com.danieljm.delijn.data.local.dao.RouteDao
+import com.danieljm.delijn.data.local.dao.StopDao
+import com.danieljm.delijn.data.repository.BusRepositoryImpl
+import com.danieljm.delijn.data.repository.RouteRepositoryImpl
+import com.danieljm.delijn.data.repository.StopRepositoryImpl
+import com.danieljm.delijn.domain.repository.BusRepository
+import com.danieljm.delijn.domain.repository.RouteRepository
+import com.danieljm.delijn.domain.repository.StopRepository
+import com.danieljm.delijn.domain.usecase.GetBusDetailsUseCase
+import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
+import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
+import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
+import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
+import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
+import com.danieljm.delijn.ui.screens.home.HomeViewModel
+import com.danieljm.delijn.ui.screens.routedetail.RouteDetailViewModel
+import com.danieljm.delijn.ui.screens.search.SearchViewModel
+import com.danieljm.delijn.ui.screens.searchdetail.SearchDetailViewModel
+import com.danieljm.delijn.ui.screens.settings.SettingsViewModel
+import com.danieljm.delijn.ui.screens.stops.StopsViewModel
+import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.dsl.module
+
+val appModule = module {
+    // Network
+    single { NetworkModule.provideOkHttpClient() }
+    single { NetworkModule.provideRetrofit(get()) }
+    single { NetworkModule.provideApiService(get()) }
+
+    // Database
+    single<AppDatabase> { DatabaseModule.provideDatabase(androidContext()) }
+    single<StopDao> { get<AppDatabase>().stopDao() }
+    single<BusDao> { get<AppDatabase>().busDao() }
+    single<RouteDao> { get<AppDatabase>().routeDao() }
+
+    // Repositories
+    single<StopRepository> { StopRepositoryImpl(get(), get()) }
+    single<BusRepository> { BusRepositoryImpl(get(), get()) }
+    single<RouteRepository> { RouteRepositoryImpl(get(), get()) }
+
+    // Use cases
+    single { SearchStopsUseCase(get()) }
+    single { GetStopDetailsUseCase(get()) }
+    single { GetBusDetailsUseCase(get()) }
+    single { GetRouteDetailsUseCase(get()) }
+    single { GetRealTimeArrivalsUseCase(get()) }
+
+    // ViewModels (example)
+    viewModel { StopsViewModel(get()) }
+    viewModel { SearchViewModel(get()) }
+    viewModel { SearchDetailViewModel(get(), get()) }
+    viewModel { BusDetailViewModel(get()) }
+    viewModel { RouteDetailViewModel(get()) }
+    viewModel { HomeViewModel() }
+    viewModel { SettingsViewModel() }
+}
