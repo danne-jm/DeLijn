@@ -1,0 +1,104 @@
+{
+    "openapi": "3.0.1",
+    "info": {
+        "title": "De Lijn GTFS Realtime",
+        "description": "API for fetching GTFS realtime",
+        "contact": {
+            "name": "De Lijn",
+            "url": "https://www.delijn.be/",
+            "email": "info@delijn.be"
+        },
+        "version": "v3"
+    },
+    "servers": [
+        {
+            "url": "https://api.delijn.be/gtfs/v3"
+        }
+    ],
+    "paths": {
+        "/realtime": {
+            "get": {
+                "summary": "Get GTFS Realtime",
+                "description": "Get GTFS Realtime",
+                "operationId": "get-gtfs",
+                "parameters": [
+                    {
+                        "name": "json",
+                        "in": "query",
+                        "description": "Return GTFS in json format instead of protobuf",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "canceled",
+                        "in": "query",
+                        "description": "Return GTFS information about canceled trips",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "delay",
+                        "in": "query",
+                        "description": "Return GTFS information about trip delays",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "position",
+                        "in": "query",
+                        "description": "Return GTFS information about vehicle positions",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "vehicleid",
+                        "in": "query",
+                        "description": "Return only GTFS for a specific vehicle ID",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "tripid",
+                        "in": "query",
+                        "description": "Return only GTFS for a specific trip ID",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "null"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiKeyHeader": {
+                "type": "apiKey",
+                "name": "Ocp-Apim-Subscription-Key",
+                "in": "header"
+            },
+            "apiKeyQuery": {
+                "type": "apiKey",
+                "name": "subscription-key",
+                "in": "query"
+            }
+        }
+    },
+    "security": [
+        {
+            "apiKeyHeader": []
+        },
+        {
+            "apiKeyQuery": []
+        }
+    ]
+}
