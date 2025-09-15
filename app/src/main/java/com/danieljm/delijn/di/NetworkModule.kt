@@ -11,7 +11,8 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 object NetworkModule {
 
     fun provideOkHttpClient(apiKey: String = Constants.API_KEY): OkHttpClient {
-        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+        // Enable verbose logging to inspect request/response bodies during development
+        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         return OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(apiKey))
             .addInterceptor(logging)
@@ -30,4 +31,3 @@ object NetworkModule {
         return retrofit.create(DeLijnApiService::class.java)
     }
 }
-

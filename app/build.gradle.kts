@@ -93,5 +93,11 @@ dependencies {
     implementation("io.insert-koin:koin-android:3.4.0")
     implementation("io.insert-koin:koin-androidx-compose:3.4.0")
 
-    // Keep Room and other previously declared deps
+    // Maps and location (osmdroid for map tiles without API key, and fused location)
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // Gson (for parsing De Lijn's non-standard JSON responses)
+    implementation("com.google.code.gson:gson:2.10.1")
+
 }
