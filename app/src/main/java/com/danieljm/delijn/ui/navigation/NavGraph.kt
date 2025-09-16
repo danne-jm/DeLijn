@@ -6,6 +6,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.danieljm.delijn.ui.screens.home.HomeScreen
+import com.danieljm.delijn.ui.screens.plan.PlanScreen
+import com.danieljm.delijn.ui.screens.plan.PlanViewModel
 import com.danieljm.delijn.ui.screens.settings.SettingsScreen
 import com.danieljm.delijn.ui.screens.stops.StopsScreen
 
@@ -22,6 +24,10 @@ fun NavGraph(
     ) {
         composable(Screen.Home.route) {
             HomeScreen()
+        }
+
+        composable(Screen.Plan.route) {
+            PlanScreen(viewModel = PlanViewModel(/* TODO: provide repositories here */))
         }
 
         composable(Screen.Stops.route) {

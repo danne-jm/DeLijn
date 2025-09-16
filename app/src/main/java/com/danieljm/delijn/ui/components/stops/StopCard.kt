@@ -75,7 +75,7 @@ fun StopCard(
                 )
 
                 Text(
-                    text = "ID: ${stop.id}",
+                    text = stop.id,
                     color = Color(0xFFBDBDBD),
                     fontSize = 12.sp,
                     maxLines = 1,
