@@ -24,6 +24,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import com.danieljm.delijn.R
+import com.danieljm.delijn.ui.components.BottomSheet
 
 @Composable
 fun StopsScreen(
@@ -200,6 +201,13 @@ fun StopsScreen(
                         }
                     }
                 }
+
+                // Bottom sheet overlayed on top of the map
+                BottomSheet(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                )
             }
 
             if (!hasLocationPermission) {

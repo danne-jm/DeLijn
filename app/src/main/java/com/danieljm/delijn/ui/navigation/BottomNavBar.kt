@@ -36,7 +36,7 @@ fun CustomBottomNavBar(
                     color = Color(0xFF43464C),
                     start = androidx.compose.ui.geometry.Offset(0f, 0f),
                     end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                    strokeWidth = 2.dp.toPx()
+                    strokeWidth = 4.dp.toPx()
                 )
             }
             .padding(vertical = 8.dp),
