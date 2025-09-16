@@ -7,15 +7,40 @@ import android.content.pm.PackageManager
 import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Navigation
+import com.danieljm.delijn.R
+import com.danieljm.delijn.ui.components.BottomSheet
 import com.google.android.gms.location.LocationServices
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
@@ -23,8 +48,6 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import com.danieljm.delijn.R
-import com.danieljm.delijn.ui.components.BottomSheet
 
 @Composable
 fun StopsScreen(
@@ -49,6 +72,9 @@ fun StopsScreen(
 
     // MapView is created inside AndroidView. Keep a reference to call methods from Kotlin code.
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+    // State to track bottom sheet height for FAB positioning
+    var bottomSheetHeight by remember { mutableStateOf(160.dp) }
 
     // Observe UI state from ViewModel
     val uiState by viewModel.uiState.collectAsState()
@@ -202,11 +228,46 @@ fun StopsScreen(
                     }
                 }
 
+                // Floating Action Button positioned above the bottom sheet
+                FloatingActionButton(
+                    onClick = {
+                        if (!hasLocationPermission) {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        } else if (mapViewRef != null && activity != null) {
+                            val fused = LocationServices.getFusedLocationProviderClient(activity)
+                            try {
+                                fused.lastLocation.addOnSuccessListener { location: android.location.Location? ->
+                                    location?.let { loc ->
+                                        moveMapToLocation(mapViewRef!!, loc)
+                                    }
+                                }
+                            } catch (_: SecurityException) {
+                                // ignore
+                            }
+                        }
+                    },
+                    containerColor = Color(0xFF43464C),
+                    contentColor = Color(0xFFBDBDBD),
+                    shape = RoundedCornerShape(32.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = bottomSheetHeight + 16.dp)
+                ) {
+                    Icon(
+                        imageVector = Lucide.Navigation,
+                        contentDescription = "Center on my location",
+                        tint = Color(0xFFBDBDBD)
+                    )
+                }
+
                 // Bottom sheet overlayed on top of the map
                 BottomSheet(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.BottomCenter),
+                    onHeightChanged = { height ->
+                        bottomSheetHeight = height
+                    }
                 )
             }
 
@@ -232,14 +293,14 @@ private fun moveMapToLocation(mapView: MapView, location: Location) {
         setZoom(18.0)
         animateTo(geo)
     }
-    // Remove previous user marker(s) we added
-    val iterator = mapView.overlays.iterator()
-    while (iterator.hasNext()) {
-        val overlay = iterator.next()
-        if (overlay is Marker && overlay.title == "You are here") {
-            iterator.remove()
-        }
+    // Remove previous user marker(s) we added - using a safe approach for CopyOnWriteArrayList
+    val overlaysToRemove = mapView.overlays.filter { overlay ->
+        overlay is Marker && overlay.title == "You are here"
     }
+    overlaysToRemove.forEach { overlay ->
+        mapView.overlays.remove(overlay)
+    }
+    
     val marker = Marker(mapView).apply {
         position = geo
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)

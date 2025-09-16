@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,7 +43,8 @@ fun BottomSheet(
     collapsedHeightRatio: Float = 0.25f,
     initialHeightRatio: Float = 0.25f,
     maxHeightRatio: Float = 0.90f,
-    collapsedHeight: Dp = 160.dp // kept for backward compatibility (unused when ratios provided)
+    collapsedHeight: Dp = 160.dp, // kept for backward compatibility (unused when ratios provided)
+    onHeightChanged: ((Dp) -> Unit)? = null // Callback to report height changes
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -67,6 +69,11 @@ fun BottomSheet(
     // animate height in dp for smooth UI when heightPx changes
     val heightDp by remember(heightPx) { derivedStateOf { with(density) { heightPx.toDp() } } }
     val animatedHeightDp by animateDpAsState(targetValue = heightDp)
+
+    // Report height changes to parent
+    LaunchedEffect(animatedHeightDp) {
+        onHeightChanged?.invoke(animatedHeightDp)
+    }
 
     Surface(
         modifier = modifier
