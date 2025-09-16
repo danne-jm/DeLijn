@@ -12,6 +12,7 @@ import com.danieljm.delijn.domain.repository.RouteRepository
 import com.danieljm.delijn.domain.repository.StopRepository
 import com.danieljm.delijn.domain.usecase.GetBusDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
@@ -53,9 +54,10 @@ val appModule = module {
     single { GetRealTimeArrivalsUseCase(get()) }
     single { GetNearbyStopsUseCase(get()) }
     single { GetCachedStopsUseCase(get()) }
+    single { GetLineDirectionsForStopUseCase(get()) }
 
     // ViewModels
-    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>()) }
+    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>()) }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }

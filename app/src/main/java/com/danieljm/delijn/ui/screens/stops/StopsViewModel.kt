@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +15,8 @@ import kotlinx.coroutines.withContext
 
 class StopsViewModel(
     private val getNearbyStopsUseCase: GetNearbyStopsUseCase,
-    private val getCachedStopsUseCase: GetCachedStopsUseCase
+    private val getCachedStopsUseCase: GetCachedStopsUseCase,
+    private val getLineDirectionsForStopUseCase: GetLineDirectionsForStopUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StopsUiState())
@@ -58,6 +60,31 @@ class StopsViewModel(
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Failed to fetch nearby stops: ${e.message}"
+                )
+            }
+        }
+    }
+
+    fun fetchLineDirectionsForStop(stopId: String) {
+        Log.d("StopsViewModel", "Fetching line directions for stop: $stopId")
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingLineDirections = true)
+            try {
+                // Extract entiteitnummer (3) and haltenummer from stopId
+                val entiteitnummer = "3" // Based on the API example
+                val response = withContext(Dispatchers.IO) {
+                    getLineDirectionsForStopUseCase(entiteitnummer, stopId)
+                }
+                Log.d("StopsViewModel", "Successfully received ${response.lijnrichtingen.size} line directions")
+                _uiState.value = _uiState.value.copy(
+                    selectedStopLineDirections = response.lijnrichtingen,
+                    isLoadingLineDirections = false
+                )
+            } catch (e: Exception) {
+                Log.e("StopsViewModel", "Error fetching line directions for stop $stopId", e)
+                _uiState.value = _uiState.value.copy(
+                    selectedStopLineDirections = emptyList(),
+                    isLoadingLineDirections = false
                 )
             }
         }

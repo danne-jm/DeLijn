@@ -1,6 +1,7 @@
 package com.danieljm.delijn.data.remote.api
 
 import com.danieljm.delijn.data.remote.dto.BusDto
+import com.danieljm.delijn.data.remote.dto.LineDirectionsResponseDto
 import com.danieljm.delijn.data.remote.dto.NearbyStopsResponseDto
 import com.danieljm.delijn.data.remote.dto.RealTimeDto
 import com.danieljm.delijn.data.remote.dto.RouteDto
@@ -33,4 +34,10 @@ interface DeLijnApiService {
         @Query("radius") radius: Int = 2500,
         @Query("maxAantalHaltes") maxStops: Int = 50
     ): NearbyStopsResponseDto
+
+    @GET("haltes/{entiteitnummer}/{haltenummer}/lijnrichtingen")
+    suspend fun getLineDirectionsForStop(
+        @Path("entiteitnummer") entiteitnummer: String,
+        @Path("haltenummer") haltenummer: String
+    ): LineDirectionsResponseDto
 }

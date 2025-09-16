@@ -64,6 +64,9 @@ fun StopsScreen(
         }
     }
 
+    // Track which stop was clicked for line directions
+    var selectedStopId by remember { mutableStateOf<String?>(null) }
+
     // Update map markers when nearby stops change
     LaunchedEffect(uiState.nearbyStops) {
         mapViewRef?.let { mapView ->
@@ -80,10 +83,47 @@ fun StopsScreen(
                     title = stop.name
                     snippet = "Stop ID: ${stop.id}"
                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
+                    
+                    // Store the stop ID in the marker's related object for unique identification
+                    relatedObject = stop.id
+
+                    // Set click listener to fetch and show line directions
+                    setOnMarkerClickListener { _, _ ->
+                        selectedStopId = stop.id
+                        viewModel.fetchLineDirectionsForStop(stop.id)
+                        // Show the info window immediately
+                        showInfoWindow()
+                        true
+                    }
                 }
                 mapView.overlays.add(marker)
             }
             mapView.invalidate()
+        }
+    }
+
+    // Update marker snippet when line directions are loaded
+    LaunchedEffect(uiState.selectedStopLineDirections, selectedStopId) {
+        if (uiState.selectedStopLineDirections.isNotEmpty() && selectedStopId != null) {
+            mapViewRef?.let { mapView ->
+                // Find the marker for the selected stop using the unique stop ID
+                mapView.overlays.filterIsInstance<Marker>()
+                    .find { marker ->
+                        marker.relatedObject == selectedStopId
+                    }?.let { marker ->
+                        val stop = uiState.nearbyStops.find { it.id == selectedStopId }
+                        if (stop != null) {
+                            val lineDirections = uiState.selectedStopLineDirections
+                            val linesInfo = lineDirections.joinToString("\n") { line ->
+                                "${line.lijnnummer} from ${line.from} to ${line.to}"
+                            }
+                            marker.snippet = stop.id
+                            // Show the updated info window
+                            marker.showInfoWindow()
+                        }
+                    }
+                mapView.invalidate()
+            }
         }
     }
 

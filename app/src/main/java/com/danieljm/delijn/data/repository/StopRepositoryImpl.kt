@@ -5,8 +5,10 @@ import com.danieljm.delijn.data.local.dao.StopDao
 import com.danieljm.delijn.data.local.entities.StopEntity
 import com.danieljm.delijn.data.mapper.NearbyStopMapper
 import com.danieljm.delijn.data.mapper.StopMapper
+import com.danieljm.delijn.data.mapper.toDomain
 import com.danieljm.delijn.data.remote.api.DeLijnApiService
 import com.danieljm.delijn.data.remote.dto.RealTimeDto
+import com.danieljm.delijn.domain.model.LineDirectionsResponse
 import com.danieljm.delijn.domain.model.Stop
 import com.danieljm.delijn.domain.repository.StopRepository
 
@@ -71,5 +73,10 @@ class StopRepositoryImpl(
         // Read all stops from local DB and map to domain
         val entities = dao.getAllStops()
         return entities.map { StopMapper.entityToDomain(it) }
+    }
+
+    override suspend fun getLineDirectionsForStop(entiteitnummer: String, haltenummer: String): LineDirectionsResponse {
+        val response = api.getLineDirectionsForStop(entiteitnummer, haltenummer)
+        return response.toDomain()
     }
 }
