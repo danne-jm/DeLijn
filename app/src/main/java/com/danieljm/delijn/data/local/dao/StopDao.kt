@@ -17,4 +17,7 @@ interface StopDao {
 
     @Query("SELECT * FROM stops WHERE id = :id LIMIT 1")
     suspend fun getStopById(id: String): StopEntity?
+
+    @Query("SELECT * FROM stops ORDER BY name ASC")
+    suspend fun getAllStops(): List<StopEntity>
 }

@@ -8,4 +8,5 @@ interface StopRepository {
     suspend fun getStopDetails(stopId: String): Stop?
     suspend fun getRealTimeArrivals(stopId: String): List<RealTimeDto>
     suspend fun getNearbyStops(latitude: Double, longitude: Double): List<Stop>
+    suspend fun getCachedStops(): List<Stop>
 }

@@ -119,8 +119,8 @@ fun StopsScreen(
                                 fused.lastLocation.addOnSuccessListener { location: Location? ->
                                     location?.let { loc ->
                                         moveMapToLocation(mv, loc)
-                                        // Fetch nearby stops using live GPS coordinates
-                                        viewModel.fetchNearbyStops(loc.latitude, loc.longitude)
+                                        // Load cached stops first then fetch live stops using live GPS coordinates
+                                        viewModel.loadStopsForLocation(loc.latitude, loc.longitude)
                                     }
                                 }
                             } catch (_: SecurityException) {

@@ -11,11 +11,12 @@ import com.danieljm.delijn.domain.repository.BusRepository
 import com.danieljm.delijn.domain.repository.RouteRepository
 import com.danieljm.delijn.domain.repository.StopRepository
 import com.danieljm.delijn.domain.usecase.GetBusDetailsUseCase
+import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
+import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
-import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
 import com.danieljm.delijn.ui.screens.routedetail.RouteDetailViewModel
@@ -51,9 +52,10 @@ val appModule = module {
     single { GetRouteDetailsUseCase(get()) }
     single { GetRealTimeArrivalsUseCase(get()) }
     single { GetNearbyStopsUseCase(get()) }
+    single { GetCachedStopsUseCase(get()) }
 
-    // ViewModels (example)
-    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>()) }
+    // ViewModels
+    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>()) }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }
