@@ -1,5 +1,6 @@
 package com.danieljm.delijn.ui.screens.stops
 
+import android.location.Location
 import com.danieljm.delijn.domain.model.LineDirection
 import com.danieljm.delijn.domain.model.Stop
 
@@ -11,5 +12,6 @@ data class StopsUiState(
     val error: String? = null,
     val selectedStopLineDirections: List<LineDirection> = emptyList(),
     val isLoadingLineDirections: Boolean = false,
-    val shouldAnimateRefresh: Boolean = false // NEW: triggers refresh icon animation
+    val shouldAnimateRefresh: Boolean = false,
+    val userLocation: Location? = null // Add userLocation here
 )

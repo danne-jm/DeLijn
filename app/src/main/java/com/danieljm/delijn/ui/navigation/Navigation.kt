@@ -1,17 +1,17 @@
 package com.danieljm.delijn.ui.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.composables.icons.lucide.Ellipsis
+import com.composables.icons.lucide.Footprints
+import com.composables.icons.lucide.House
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Search
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Home : Screen("home", "Home", Icons.Default.Home)
-    object Plan : Screen("plan", "Plan", Icons.Default.Map)
-    object Stops : Screen("stops", "Stops", Icons.Default.LocationOn)
-    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+    object Home : Screen("home", "Home", Lucide.House)
+    object Plan : Screen("plan", "Plan", Lucide.Footprints)
+    object Stops : Screen("stops", "Stops", Lucide.Search)
+    object Settings : Screen("settings", "More", Lucide.Ellipsis)
 }
 
 val bottomNavItems = listOf(

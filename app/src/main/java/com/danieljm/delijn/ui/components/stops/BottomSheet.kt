@@ -6,31 +6,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,15 +31,11 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
 import com.danieljm.delijn.domain.model.Stop
 import kotlin.math.*
-import kotlinx.coroutines.launch
 
 @Composable
 fun BottomSheet(
     modifier: Modifier = Modifier,
-    collapsedHeightRatio: Float = 0.25f,
-    initialHeightRatio: Float = 0.25f,
     maxHeightRatio: Float = 0.85f,
-    collapsedHeight: Dp = 160.dp,
     onHeightChanged: ((Dp) -> Unit)? = null,
     stops: List<Stop> = emptyList(),
     userLat: Double? = null,
@@ -63,31 +44,28 @@ fun BottomSheet(
     onRefresh: (() -> Unit)? = null,
     isLoading: Boolean = false,
     shouldAnimateRefresh: Boolean = false,
-    onRefreshAnimationComplete: (() -> Unit)? = null
+    onRefreshAnimationComplete: (() -> Unit)? = null,
+    listState: LazyListState
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
 
-    val minVisibleRatio = 0.05f
-    val maxRatioClamped = maxHeightRatio.coerceIn(minVisibleRatio, 1f)
-    val collapsedRatioClamped = collapsedHeightRatio.coerceIn(minVisibleRatio, maxRatioClamped)
-    val initialRatioClamped = initialHeightRatio.coerceIn(collapsedRatioClamped, maxRatioClamped)
-
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-    val collapsedPx = screenHeightPx * collapsedRatioClamped
-    val expandedPx = screenHeightPx * maxRatioClamped
-    val initialPx = screenHeightPx * initialRatioClamped
+    val collapsedPx = screenHeightPx * 0.25f
+    val expandedPx = screenHeightPx * maxHeightRatio
+    val initialPx = collapsedPx
 
-    var heightPx by remember { mutableStateOf(initialPx.coerceIn(collapsedPx, expandedPx)) }
+    // Use rememberSaveable to preserve the height across navigation
+    var heightPx by rememberSaveable { mutableStateOf(initialPx) }
     var isDragging by remember { mutableStateOf(false) }
 
     val heightDp by remember(heightPx) { derivedStateOf { with(density) { heightPx.toDp() } } }
-    val animatedHeightDp by animateDpAsState(targetValue = heightDp)
+    val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BottomSheetHeightAnimation")
 
-    // Rotation animation for refresh icon
-    val rotation = remember { Animatable(130f) }
-    val scope = rememberCoroutineScope()
+    val rotation = remember { Animatable(0f) }
+
+    // ... (rest of the composable is largely unchanged)
 
     val sortedStops = remember(stops, userLat, userLon) {
         if (userLat != null && userLon != null) {
@@ -104,11 +82,11 @@ fun BottomSheet(
         onHeightChanged?.invoke(reportHeight)
     }
 
-    // Animate when shouldAnimateRefresh is true
     LaunchedEffect(shouldAnimateRefresh) {
         if (shouldAnimateRefresh) {
-            rotation.snapTo(130f)
-            rotation.animateTo(490f, animationSpec = tween(durationMillis = 800))
+            rotation.snapTo(0f) // Start from 0
+            rotation.animateTo(360f, animationSpec = tween(durationMillis = 800))
+            rotation.snapTo(0f) // Reset after animation
             onRefreshAnimationComplete?.invoke()
         }
     }
@@ -186,9 +164,10 @@ fun BottomSheet(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    state = listState
                 ) {
-                    items(sortedStops) { stop ->
+                    items(sortedStops, key = { it.id }) { stop ->
                         StopCard(
                             stop = stop,
                             userLat = userLat,

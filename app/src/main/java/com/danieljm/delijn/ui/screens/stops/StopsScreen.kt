@@ -8,9 +8,12 @@ import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -18,9 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
-import com.google.android.gms.location.LocationServices
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -35,9 +38,9 @@ fun StopsScreen(
     viewModel: StopsViewModel = koinViewModel()
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val uiState by viewModel.uiState.collectAsState()
+    val userLocation = uiState.userLocation
 
-    // Track permission state
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -47,38 +50,74 @@ fun StopsScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { perms ->
-            hasLocationPermission = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+            val permissionGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+            hasLocationPermission = permissionGranted
+            if (permissionGranted) {
+                viewModel.requestUserLocation(context)
+            }
         }
     )
 
-    // MapView is created inside AndroidView. Keep a reference to call methods from Kotlin code.
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-
-    // State to track bottom sheet height for FAB positioning
-    var bottomSheetHeight by remember { mutableStateOf(160.dp) }
-
-    // Observe UI state from ViewModel
-    val uiState by viewModel.uiState.collectAsState()
-
-    // Track user's location
-    var userLocation by remember { mutableStateOf<Location?>(null) }
+    val DpSaver = Saver<Dp, Float>(
+        save = { it.value },
+        restore = { it.dp }
+    )
+    var bottomSheetHeight by rememberSaveable(stateSaver = DpSaver) { mutableStateOf(160.dp) }
+    var selectedStopId by remember { mutableStateOf<String?>(null) }
+    // Track if user explicitly requested centering on their location
+    var pendingCenterOnLocation by remember { mutableStateOf(false) }
+    var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
 
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
     }
 
-    // Request permission once when composable enters composition (if not granted)
+    // Request permission or location once when the screen is first composed
     LaunchedEffect(hasLocationPermission) {
-        if (!hasLocationPermission) {
+        if (hasLocationPermission) {
+            viewModel.requestUserLocation(context)
+        } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
 
-    // Track which stop was clicked for line directions
-    var selectedStopId by remember { mutableStateOf<String?>(null) }
+    // Center map on user location only on first launch
+    LaunchedEffect(isFirstLaunch, userLocation) {
+        if (isFirstLaunch && userLocation != null) {
+            moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+            isFirstLaunch = false
+        }
+    }
 
-    // Update map markers when nearby stops change
+    // Center map when location is requested by FAB and becomes available
+    LaunchedEffect(pendingCenterOnLocation, userLocation) {
+        if (pendingCenterOnLocation && userLocation != null) {
+            moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+            pendingCenterOnLocation = false
+        }
+    }
+
+    // Always show user live location marker if userLocation is available
+    LaunchedEffect(userLocation, mapViewRef) {
+        if (userLocation != null && mapViewRef != null) {
+            val lat = userLocation.latitude
+            val lon = userLocation.longitude
+            val geo = GeoPoint(lat, lon)
+            val overlaysToRemove = mapViewRef!!.overlays.filterIsInstance<Marker>().filter { it.title == "You are here" }
+            overlaysToRemove.forEach { mapViewRef!!.overlays.remove(it) }
+            val marker = Marker(mapViewRef).apply {
+                position = geo
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "You are here"
+                icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_gps)
+            }
+            mapViewRef!!.overlays.add(marker)
+            mapViewRef!!.invalidate()
+        }
+    }
+
     LaunchedEffect(uiState.nearbyStops) {
         mapViewRef?.let { mapView ->
             // Remove previous stop markers (keep "You are here" marker)
@@ -94,7 +133,7 @@ fun StopsScreen(
                     title = stop.name
                     snippet = "Stop ID: ${stop.id}"
                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
-                    
+
                     // Store the stop ID in the marker's related object for unique identification
                     relatedObject = stop.id
 
@@ -117,19 +156,13 @@ fun StopsScreen(
     LaunchedEffect(uiState.selectedStopLineDirections, selectedStopId) {
         if (uiState.selectedStopLineDirections.isNotEmpty() && selectedStopId != null) {
             mapViewRef?.let { mapView ->
-                // Find the marker for the selected stop using the unique stop ID
                 mapView.overlays.filterIsInstance<Marker>()
                     .find { marker ->
                         marker.relatedObject == selectedStopId
                     }?.let { marker ->
                         val stop = uiState.nearbyStops.find { it.id == selectedStopId }
                         if (stop != null) {
-                            val lineDirections = uiState.selectedStopLineDirections
-                            val linesInfo = lineDirections.joinToString("\n") { line ->
-                                "${line.lijnnummer} from ${line.from} to ${line.to}"
-                            }
                             marker.snippet = stop.id
-                            // Show the updated info window
                             marker.showInfoWindow()
                         }
                     }
@@ -138,47 +171,57 @@ fun StopsScreen(
         }
     }
 
+    val defaultZoom = 15.0
+    val defaultLat = 50.8792 // Leuven
+    val defaultLon = 4.7012  // Leuven
+    var mapZoom by rememberSaveable { mutableStateOf(defaultZoom) }
+    var mapCenter by rememberSaveable { mutableStateOf(Pair(defaultLat, defaultLon)) }
+    val stopsListState = rememberLazyListState() // Correctly using rememberLazyListState
+
+    DisposableEffect(mapViewRef) {
+        val mapView = mapViewRef
+        if (mapView != null) {
+            val listener = object : org.osmdroid.events.MapListener {
+                override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                    mapCenter = Pair(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                    return true
+                }
+                override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                    mapZoom = mapView.zoomLevelDouble
+                    return true
+                }
+            }
+            mapView.addMapListener(listener)
+            onDispose { mapView.removeMapListener(listener) }
+        } else {
+            onDispose { }
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(0.dp),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-
             Box(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
 
                 AndroidView(
                     factory = { ctx ->
-                        val mv = MapView(ctx).apply {
+                        MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(15.0)
+                            controller.setZoom(mapZoom)
+                            controller.setCenter(GeoPoint(mapCenter.first, mapCenter.second))
+                            mapViewRef = this
                         }
-                        mapViewRef = mv
-                        mv
                     },
                     update = { mv ->
+                        // The update block is simpler now, just ensuring the reference is set.
+                        // Most logic is now handled by LaunchedEffects reacting to state changes.
                         mapViewRef = mv
-                        // If we have permission, try to get last location and center map
-                        if (hasLocationPermission && activity != null) {
-                            val fused = LocationServices.getFusedLocationProviderClient(activity)
-                            try {
-                                fused.lastLocation.addOnSuccessListener { location: Location? ->
-                                    location?.let { loc ->
-                                        userLocation = loc
-                                        moveMapToLocation(mv, loc)
-                                        // Load cached stops first then fetch live stops using live GPS coordinates
-                                        viewModel.loadStopsForLocation(loc.latitude, loc.longitude)
-                                    }
-                                }
-                            } catch (_: SecurityException) {
-                                // ignore - permission should be checked before calling
-                            }
-                        }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -195,7 +238,7 @@ fun StopsScreen(
                 }
 
                 // Show error message
-                uiState.error?.let { error ->
+                uiState.error?.let {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -206,7 +249,7 @@ fun StopsScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                         ) {
                             Text(
-                                text = error,
+                                text = it,
                                 modifier = Modifier.padding(16.dp),
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -217,20 +260,15 @@ fun StopsScreen(
                 // Floating Action Button positioned above the bottom sheet
                 FloatingActionButton(
                     onClick = {
-                        if (!hasLocationPermission) {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                        } else if (mapViewRef != null && activity != null) {
-                            val fused = LocationServices.getFusedLocationProviderClient(activity)
-                            try {
-                                fused.lastLocation.addOnSuccessListener { location: android.location.Location? ->
-                                    location?.let { loc ->
-                                        userLocation = loc
-                                        moveMapToLocation(mapViewRef!!, loc)
-                                    }
-                                }
-                            } catch (_: SecurityException) {
-                                // ignore
+                        if (hasLocationPermission) {
+                            if (userLocation != null) {
+                                moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+                            } else {
+                                viewModel.requestUserLocation(context)
+                                pendingCenterOnLocation = true
                             }
+                        } else {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
                     },
                     containerColor = Color(0xFF1D2124),
@@ -240,11 +278,7 @@ fun StopsScreen(
                         .align(Alignment.BottomEnd)
                         .padding(end = 16.dp, bottom = bottomSheetHeight + 16.dp)
                 ) {
-                    Icon(
-                        imageVector = Lucide.Navigation,
-                        contentDescription = "Center on my location",
-                        tint = Color(0xFFBDBDBD)
-                    )
+                    Icon(Lucide.Navigation, "Center on my location")
                 }
 
                 // Bottom sheet overlayed on top of the map
@@ -255,77 +289,45 @@ fun StopsScreen(
                     stops = uiState.nearbyStops,
                     userLat = userLocation?.latitude,
                     userLon = userLocation?.longitude,
-                    onHeightChanged = { height ->
-                        bottomSheetHeight = height
-                    },
+                    onHeightChanged = { height -> bottomSheetHeight = height },
                     onStopClick = { stop ->
-                        val geoPoint = GeoPoint(stop.latitude, stop.longitude)
-                        mapViewRef?.controller?.animateTo(geoPoint)
+                        mapViewRef?.controller?.animateTo(GeoPoint(stop.latitude, stop.longitude))
                     },
                     isLoading = uiState.isLoading,
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
                     onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() },
                     onRefresh = {
-                        // If we have a known user location, use it directly
-                        if (userLocation != null) {
-                            viewModel.fetchNearbyStops(userLocation!!.latitude, userLocation!!.longitude)
-                        } else if (hasLocationPermission && activity != null) {
-                            // Try to get last known location and then fetch
-                            val fused = LocationServices.getFusedLocationProviderClient(activity)
-                            try {
-                                fused.lastLocation.addOnSuccessListener { location: Location? ->
-                                    location?.let { loc ->
-                                        userLocation = loc
-                                        viewModel.fetchNearbyStops(loc.latitude, loc.longitude)
-                                    }
-                                }
-                            } catch (_: SecurityException) {
-                                // ignore
-                            }
+                        // Ask ViewModel to find location and then fetch stops
+                        if(hasLocationPermission) {
+                            viewModel.requestUserLocation(context)
                         } else {
-                            // No permission, request it
                             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
-                    }
+                    },
+                    listState = stopsListState
                 )
-            }
-
-            if (!hasLocationPermission) {
-                Text(
-                    text = "Location permission required to show your position on the map.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-                Button(onClick = {
-                    permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                }, modifier = Modifier.padding(bottom = 16.dp)) {
-                    Text("Grant location")
-                }
             }
         }
     }
 }
 
-private fun moveMapToLocation(mapView: MapView, location: Location) {
-    val geo = GeoPoint(location.latitude, location.longitude)
-    mapView.controller.apply {
-        setZoom(18.0)
-        animateTo(geo)
+private var lastCenteredLocation: Pair<Double, Double>? = null
+
+private fun moveMapToLocation(mapView: MapView?, location: Location?, isInitialMove: Boolean = false) {
+    if (mapView == null || location == null) return
+
+    val lat = location.latitude
+    val lon = location.longitude
+
+    // On initial move, always center. Otherwise, only move if location has changed.
+    if (!isInitialMove && lastCenteredLocation?.first == lat && lastCenteredLocation?.second == lon) {
+        return
     }
-    // Remove previous user marker(s) we added - using a safe approach for CopyOnWriteArrayList
-    val overlaysToRemove = mapView.overlays.filter { overlay ->
-        overlay is Marker && overlay.title == "You are here"
+
+    lastCenteredLocation = lat to lon
+    val geo = GeoPoint(lat, lon)
+    mapView.controller.animateTo(geo)
+    if (isInitialMove) {
+        mapView.controller.setZoom(18.0)
     }
-    overlaysToRemove.forEach { overlay ->
-        mapView.overlays.remove(overlay)
-    }
-    
-    val marker = Marker(mapView).apply {
-        position = geo
-        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        title = "You are here"
-        icon = ContextCompat.getDrawable(mapView.context, R.drawable.user_live_gps)
-    }
-    mapView.overlays.add(marker)
-    mapView.invalidate()
 }

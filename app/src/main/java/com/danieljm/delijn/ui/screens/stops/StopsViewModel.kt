@@ -1,11 +1,15 @@
 package com.danieljm.delijn.ui.screens.stops
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.location.Location
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,14 +31,13 @@ class StopsViewModel(
     private var lastFetchLon: Double? = null
 
     init {
+        // This auto-refresh logic can remain as is
         viewModelScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(1000)
                 val now = System.currentTimeMillis()
                 if (lastFetchTimeMillis != 0L && now - lastFetchTimeMillis > 30_000) {
-                    // Only auto-refresh if we have a location
                     if (lastFetchLat != null && lastFetchLon != null) {
-                        // Set shouldAnimateRefresh to true before fetching
                         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
                         fetchNearbyStops(lastFetchLat!!, lastFetchLon!!, isAuto = true)
                     }
@@ -43,23 +46,45 @@ class StopsViewModel(
         }
     }
 
+    /**
+     * Centralized function to request the user's current location.
+     * This should be called from the UI when location is needed.
+     * It's safe to suppress the missing permission check here because
+     * the UI layer is responsible for verifying permissions before calling this.
+     */
+    @SuppressLint("MissingPermission")
+    fun requestUserLocation(context: Context) {
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+            if (location != null) {
+                _uiState.value = _uiState.value.copy(userLocation = location)
+                // Automatically load stops for the new location
+                loadStopsForLocation(location.latitude, location.longitude)
+            }
+        }.addOnFailureListener {
+            Log.e("StopsViewModel", "Failed to get location.", it)
+        }
+    }
+
     fun loadStopsForLocation(latitude: Double, longitude: Double) {
+        val currentState = _uiState.value
+        // Prevent reloading if location hasn't changed significantly
+        if (currentState.userLocation?.latitude == latitude && currentState.userLocation?.longitude == longitude && currentState.nearbyStops.isNotEmpty()) {
+            return
+        }
+
         Log.d("StopsViewModel", "Load cached stops first for quick display")
         viewModelScope.launch {
             try {
-                // Load cached stops on IO
                 val cached = withContext(Dispatchers.IO) { getCachedStopsUseCase() }
                 if (cached.isNotEmpty()) {
                     Log.d("StopsViewModel", "Loaded ${cached.size} cached stops")
                     _uiState.value = _uiState.value.copy(nearbyStops = cached)
-                } else {
-                    Log.d("StopsViewModel", "No cached stops found")
                 }
             } catch (e: Exception) {
                 Log.e("StopsViewModel", "Error loading cached stops", e)
             }
-
-            // Then fetch live data and update
+            // Then fetch live data
             fetchNearbyStops(latitude, longitude)
         }
     }
@@ -72,16 +97,13 @@ class StopsViewModel(
             lastFetchLat = latitude
             lastFetchLon = longitude
             try {
-                Log.d("StopsViewModel", "Calling use case to get nearby stops")
                 val stops = withContext(Dispatchers.IO) { getNearbyStopsUseCase(latitude, longitude) }
-                Log.d("StopsViewModel", "Successfully received ${stops.size} stops from use case")
                 _uiState.value = _uiState.value.copy(
                     nearbyStops = stops,
                     isLoading = false,
-                    shouldAnimateRefresh = false // reset after fetch
+                    shouldAnimateRefresh = false
                 )
             } catch (e: Exception) {
-                Log.e("StopsViewModel", "Error in fetchNearbyStops", e)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Failed to fetch nearby stops: ${e.message}",
@@ -92,7 +114,6 @@ class StopsViewModel(
     }
 
     fun onRefreshAnimationComplete() {
-        // Called by UI after animation completes to reset flag
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
     }
 
@@ -101,12 +122,10 @@ class StopsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoadingLineDirections = true)
             try {
-                // Extract entiteitnummer (3) and haltenummer from stopId
-                val entiteitnummer = "3" // Based on the API example
+                val entiteitnummer = "3"
                 val response = withContext(Dispatchers.IO) {
                     getLineDirectionsForStopUseCase(entiteitnummer, stopId)
                 }
-                Log.d("StopsViewModel", "Successfully received ${response.lijnrichtingen.size} line directions")
                 _uiState.value = _uiState.value.copy(
                     selectedStopLineDirections = response.lijnrichtingen,
                     isLoadingLineDirections = false
