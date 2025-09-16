@@ -1,6 +1,7 @@
 package com.danieljm.delijn.data.remote.api
 
 import com.danieljm.delijn.data.remote.dto.BusDto
+import com.danieljm.delijn.data.remote.dto.NearbyStopsResponseDto
 import com.danieljm.delijn.data.remote.dto.RealTimeDto
 import com.danieljm.delijn.data.remote.dto.RouteDto
 import com.danieljm.delijn.data.remote.dto.StopDto
@@ -24,4 +25,12 @@ interface DeLijnApiService {
 
     @GET("realtime/{stopId}")
     suspend fun getRealTimeForStop(@Path("stopId") stopId: String): List<RealTimeDto>
+
+    @GET("haltes/indebuurt/{latitude},{longitude}")
+    suspend fun getNearbyStops(
+        @Path("latitude") latitude: Double,
+        @Path("longitude") longitude: Double,
+        @Query("radius") radius: Int = 2500,
+        @Query("maxAantalHaltes") maxStops: Int = 50
+    ): NearbyStopsResponseDto
 }

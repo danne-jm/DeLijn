@@ -7,4 +7,5 @@ interface StopRepository {
     suspend fun searchStops(query: String): List<Stop>
     suspend fun getStopDetails(stopId: String): Stop?
     suspend fun getRealTimeArrivals(stopId: String): List<RealTimeDto>
+    suspend fun getNearbyStops(latitude: Double, longitude: Double): List<Stop>
 }

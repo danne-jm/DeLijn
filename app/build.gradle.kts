@@ -78,6 +78,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-moshi:2.9.0")
     implementation("com.squareup.moshi:moshi:1.15.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.0")
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:1.15.2")
 
     // OkHttp logging (use 4.x for Retrofit 2 compatibility)
     implementation("com.squareup.okhttp3:okhttp:4.10.0")
@@ -99,5 +100,8 @@ dependencies {
 
     // Gson (for parsing De Lijn's non-standard JSON responses)
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Lucide icons
+    implementation("com.composables:icons-lucide:1.1.0")
 
 }

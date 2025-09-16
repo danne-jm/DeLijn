@@ -4,6 +4,8 @@ import com.danieljm.delijn.domain.model.Stop
 
 data class StopsUiState(
     val query: String = "",
-    val stops: List<Stop> = emptyList()
+    val stops: List<Stop> = emptyList(),
+    val nearbyStops: List<Stop> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null
 )
-

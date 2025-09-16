@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -18,14 +17,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
+import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import com.danieljm.delijn.R
 
 @Composable
-fun StopsScreen() {
+fun StopsScreen(
+    viewModel: StopsViewModel = koinViewModel()
+) {
     val context = LocalContext.current
     val activity = context as? Activity
 
@@ -46,9 +49,11 @@ fun StopsScreen() {
     // MapView is created inside AndroidView. Keep a reference to call methods from Kotlin code.
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
+    // Observe UI state from ViewModel
+    val uiState by viewModel.uiState.collectAsState()
+
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
-        // Store osmdroid preferences in a private SharedPreferences to avoid depending on androidx.preference
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
     }
 
@@ -56,6 +61,29 @@ fun StopsScreen() {
     LaunchedEffect(hasLocationPermission) {
         if (!hasLocationPermission) {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    // Update map markers when nearby stops change
+    LaunchedEffect(uiState.nearbyStops) {
+        mapViewRef?.let { mapView ->
+            // Remove previous stop markers (keep "You are here" marker)
+            val overlaysToRemove = mapView.overlays.filter { it is Marker && it.title != "You are here" }
+            overlaysToRemove.forEach { mapView.overlays.remove(it) }
+
+            // Add markers for each nearby stop
+            uiState.nearbyStops.forEach { stop ->
+                val gp = GeoPoint(stop.latitude, stop.longitude)
+                val marker = Marker(mapView).apply {
+                    position = gp
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = stop.name
+                    snippet = "Stop ID: ${stop.id}"
+                    icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
+                }
+                mapView.overlays.add(marker)
+            }
+            mapView.invalidate()
         }
     }
 
@@ -83,7 +111,6 @@ fun StopsScreen() {
                         mv
                     },
                     update = { mv ->
-                        // Ensure map reference is up-to-date
                         mapViewRef = mv
                         // If we have permission, try to get last location and center map
                         if (hasLocationPermission && activity != null) {
@@ -92,6 +119,8 @@ fun StopsScreen() {
                                 fused.lastLocation.addOnSuccessListener { location: Location? ->
                                     location?.let { loc ->
                                         moveMapToLocation(mv, loc)
+                                        // Fetch nearby stops using live GPS coordinates
+                                        viewModel.fetchNearbyStops(loc.latitude, loc.longitude)
                                     }
                                 }
                             } catch (_: SecurityException) {
@@ -101,6 +130,36 @@ fun StopsScreen() {
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Show loading indicator
+                if (uiState.isLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                // Show error message
+                uiState.error?.let { error ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        ) {
+                            Text(
+                                text = error,
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
             }
 
             if (!hasLocationPermission) {
@@ -137,9 +196,8 @@ private fun moveMapToLocation(mapView: MapView, location: Location) {
         position = geo
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         title = "You are here"
+        icon = ContextCompat.getDrawable(mapView.context, R.drawable.user_live_gps)
     }
     mapView.overlays.add(marker)
     mapView.invalidate()
 }
-
-// Optional: lifecycle helpers could be added in the Activity to forward onResume/onPause to the MapView.

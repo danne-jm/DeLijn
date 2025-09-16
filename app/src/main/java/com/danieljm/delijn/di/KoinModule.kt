@@ -15,6 +15,7 @@ import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
+import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
 import com.danieljm.delijn.ui.screens.routedetail.RouteDetailViewModel
@@ -49,9 +50,10 @@ val appModule = module {
     single { GetBusDetailsUseCase(get()) }
     single { GetRouteDetailsUseCase(get()) }
     single { GetRealTimeArrivalsUseCase(get()) }
+    single { GetNearbyStopsUseCase(get()) }
 
     // ViewModels (example)
-    viewModel { StopsViewModel(get()) }
+    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>()) }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }
