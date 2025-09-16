@@ -22,6 +22,27 @@ class StopsViewModel(
     private val _uiState = MutableStateFlow(StopsUiState())
     val uiState: StateFlow<StopsUiState> = _uiState.asStateFlow()
 
+    private var lastFetchTimeMillis: Long = 0L
+    private var lastFetchLat: Double? = null
+    private var lastFetchLon: Double? = null
+
+    init {
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                val now = System.currentTimeMillis()
+                if (lastFetchTimeMillis != 0L && now - lastFetchTimeMillis > 30_000) {
+                    // Only auto-refresh if we have a location
+                    if (lastFetchLat != null && lastFetchLon != null) {
+                        // Set shouldAnimateRefresh to true before fetching
+                        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
+                        fetchNearbyStops(lastFetchLat!!, lastFetchLon!!, isAuto = true)
+                    }
+                }
+            }
+        }
+    }
+
     fun loadStopsForLocation(latitude: Double, longitude: Double) {
         Log.d("StopsViewModel", "Load cached stops first for quick display")
         viewModelScope.launch {
@@ -43,26 +64,36 @@ class StopsViewModel(
         }
     }
 
-    fun fetchNearbyStops(latitude: Double, longitude: Double) {
+    fun fetchNearbyStops(latitude: Double, longitude: Double, isAuto: Boolean = false) {
         Log.d("StopsViewModel", "Starting to fetch nearby stops for lat=$latitude, lon=$longitude")
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, shouldAnimateRefresh = true)
+            lastFetchTimeMillis = System.currentTimeMillis()
+            lastFetchLat = latitude
+            lastFetchLon = longitude
             try {
                 Log.d("StopsViewModel", "Calling use case to get nearby stops")
                 val stops = withContext(Dispatchers.IO) { getNearbyStopsUseCase(latitude, longitude) }
                 Log.d("StopsViewModel", "Successfully received ${stops.size} stops from use case")
                 _uiState.value = _uiState.value.copy(
                     nearbyStops = stops,
-                    isLoading = false
+                    isLoading = false,
+                    shouldAnimateRefresh = false // reset after fetch
                 )
             } catch (e: Exception) {
                 Log.e("StopsViewModel", "Error in fetchNearbyStops", e)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = "Failed to fetch nearby stops: ${e.message}"
+                    error = "Failed to fetch nearby stops: ${e.message}",
+                    shouldAnimateRefresh = false
                 )
             }
         }
+    }
+
+    fun onRefreshAnimationComplete() {
+        // Called by UI after animation completes to reset flag
+        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
     }
 
     fun fetchLineDirectionsForStop(stopId: String) {

@@ -10,5 +10,6 @@ data class StopsUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val selectedStopLineDirections: List<LineDirection> = emptyList(),
-    val isLoadingLineDirections: Boolean = false
+    val isLoadingLineDirections: Boolean = false,
+    val shouldAnimateRefresh: Boolean = false // NEW: triggers refresh icon animation
 )

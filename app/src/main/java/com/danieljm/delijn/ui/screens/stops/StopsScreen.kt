@@ -7,40 +7,19 @@ import android.content.pm.PackageManager
 import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.graphics.Color
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
-import com.danieljm.delijn.R
-import com.danieljm.delijn.ui.components.BottomSheet
 import com.google.android.gms.location.LocationServices
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
@@ -48,6 +27,8 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import com.danieljm.delijn.R
+import com.danieljm.delijn.ui.components.stops.BottomSheet
 
 @Composable
 fun StopsScreen(
@@ -78,6 +59,9 @@ fun StopsScreen(
 
     // Observe UI state from ViewModel
     val uiState by viewModel.uiState.collectAsState()
+
+    // Track user's location
+    var userLocation by remember { mutableStateOf<Location?>(null) }
 
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
@@ -185,6 +169,7 @@ fun StopsScreen(
                             try {
                                 fused.lastLocation.addOnSuccessListener { location: Location? ->
                                     location?.let { loc ->
+                                        userLocation = loc
                                         moveMapToLocation(mv, loc)
                                         // Load cached stops first then fetch live stops using live GPS coordinates
                                         viewModel.loadStopsForLocation(loc.latitude, loc.longitude)
@@ -204,7 +189,8 @@ fun StopsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
+                        // Keep commented for now
+                        //CircularProgressIndicator()
                     }
                 }
 
@@ -238,6 +224,7 @@ fun StopsScreen(
                             try {
                                 fused.lastLocation.addOnSuccessListener { location: android.location.Location? ->
                                     location?.let { loc ->
+                                        userLocation = loc
                                         moveMapToLocation(mapViewRef!!, loc)
                                     }
                                 }
@@ -246,7 +233,7 @@ fun StopsScreen(
                             }
                         }
                     },
-                    containerColor = Color(0xFF43464C),
+                    containerColor = Color(0xFF1D2124),
                     contentColor = Color(0xFFBDBDBD),
                     shape = RoundedCornerShape(32.dp),
                     modifier = Modifier
@@ -265,8 +252,40 @@ fun StopsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter),
+                    stops = uiState.nearbyStops,
+                    userLat = userLocation?.latitude,
+                    userLon = userLocation?.longitude,
                     onHeightChanged = { height ->
                         bottomSheetHeight = height
+                    },
+                    onStopClick = { stop ->
+                        val geoPoint = GeoPoint(stop.latitude, stop.longitude)
+                        mapViewRef?.controller?.animateTo(geoPoint)
+                    },
+                    isLoading = uiState.isLoading,
+                    shouldAnimateRefresh = uiState.shouldAnimateRefresh,
+                    onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() },
+                    onRefresh = {
+                        // If we have a known user location, use it directly
+                        if (userLocation != null) {
+                            viewModel.fetchNearbyStops(userLocation!!.latitude, userLocation!!.longitude)
+                        } else if (hasLocationPermission && activity != null) {
+                            // Try to get last known location and then fetch
+                            val fused = LocationServices.getFusedLocationProviderClient(activity)
+                            try {
+                                fused.lastLocation.addOnSuccessListener { location: Location? ->
+                                    location?.let { loc ->
+                                        userLocation = loc
+                                        viewModel.fetchNearbyStops(loc.latitude, loc.longitude)
+                                    }
+                                }
+                            } catch (_: SecurityException) {
+                                // ignore
+                            }
+                        } else {
+                            // No permission, request it
+                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        }
                     }
                 )
             }
