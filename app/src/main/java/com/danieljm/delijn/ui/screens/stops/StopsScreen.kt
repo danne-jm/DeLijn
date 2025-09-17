@@ -347,6 +347,13 @@ fun StopsScreen(
             }
         }
     }
+
+    // Always center map on user location as soon as it is available
+    LaunchedEffect(userLocation) {
+        if (userLocation != null && mapViewRef != null) {
+            moveMapToLocation(mapViewRef, userLocation, isInitialMove = false)
+        }
+    }
 }
 
 private var lastCenteredLocation: Pair<Double, Double>? = null

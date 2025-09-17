@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -86,7 +87,7 @@ fun BusArrivalsBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 8.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -115,8 +116,8 @@ fun BusArrivalsBottomSheet(
             Row (
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp), // Only vertical padding, horizontal is handled by parent
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
+                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -125,31 +126,30 @@ fun BusArrivalsBottomSheet(
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                Icon(
-                    imageVector = Lucide.RefreshCw,
-                    contentDescription = "Refresh",
-                    tint = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .size(32.dp)
-                        .padding(start = 8.dp)
-                        .graphicsLayer { rotationZ = rotation.value }
-                        .clickable(enabled = onRefresh != null && !rotation.isRunning) {
-                            onRefresh?.invoke()
-                        }
-                )
             }
             Row (
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp), // Only vertical padding
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
+                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             )  {
                 Text(
                     text = stopId,
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = 14.sp
+                )
+                Icon(
+                    imageVector = Lucide.RefreshCw,
+                    contentDescription = "Refresh",
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .size(28.dp)
+                        .padding(start = 8.dp)
+                        .graphicsLayer { rotationZ = rotation.value }
+                        .clickable(enabled = onRefresh != null && !rotation.isRunning) {
+                            onRefresh?.invoke()
+                        }
                 )
             }
 
