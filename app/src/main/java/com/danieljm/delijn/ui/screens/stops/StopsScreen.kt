@@ -46,6 +46,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
 import com.danieljm.delijn.R
 import com.danieljm.delijn.ui.components.stops.BottomSheet
+import com.danieljm.delijn.ui.navigation.Screen
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
@@ -53,9 +54,11 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import androidx.navigation.NavHostController
 
 @Composable
 fun StopsScreen(
+    navController: NavHostController,
     viewModel: StopsViewModel = koinViewModel()
 ) {
     val context = LocalContext.current
@@ -174,16 +177,9 @@ fun StopsScreen(
                     title = stop.name
                     snippet = "Stop ID: ${stop.id}"
                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
-
-                    // Store the stop ID in the marker's related object for unique identification
                     relatedObject = stop.id
-
-                    // Set click listener to fetch and show line directions
                     setOnMarkerClickListener { _, _ ->
-                        selectedStopId = stop.id
-                        viewModel.fetchLineDirectionsForStop(stop.id)
-                        // Show the info window immediately
-                        showInfoWindow()
+                        navController.navigate(Screen.StopDetail.route.replace("{stopId}", stop.id))
                         true
                     }
                 }

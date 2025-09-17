@@ -5,11 +5,14 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.danieljm.delijn.ui.screens.home.HomeScreen
 import com.danieljm.delijn.ui.screens.plan.PlanScreen
-import com.danieljm.delijn.ui.screens.plan.PlanViewModel
 import com.danieljm.delijn.ui.screens.settings.SettingsScreen
 import com.danieljm.delijn.ui.screens.stops.StopsScreen
+import com.danieljm.delijn.ui.screens.stopdetailscreen.StopDetailScreen
+import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun NavGraph(
@@ -27,15 +30,23 @@ fun NavGraph(
         }
 
         composable(Screen.Plan.route) {
-            PlanScreen(viewModel = PlanViewModel(/* TODO: provide repositories here */))
+            PlanScreen(viewModel = koinViewModel())
         }
 
         composable(Screen.Stops.route) {
-            StopsScreen()
+            StopsScreen(navController = navController)
         }
 
         composable(Screen.Settings.route) {
             SettingsScreen()
+        }
+
+        composable(
+            Screen.StopDetail.route,
+            arguments = listOf(navArgument("stopId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val stopId = backStackEntry.arguments?.getString("stopId") ?: ""
+            StopDetailScreen(stopId = stopId)
         }
     }
 }

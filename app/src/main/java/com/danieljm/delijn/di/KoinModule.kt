@@ -25,6 +25,14 @@ import com.danieljm.delijn.ui.screens.search.SearchViewModel
 import com.danieljm.delijn.ui.screens.searchdetail.SearchDetailViewModel
 import com.danieljm.delijn.ui.screens.settings.SettingsViewModel
 import com.danieljm.delijn.ui.screens.stops.StopsViewModel
+import com.danieljm.delijn.ui.screens.stopdetailscreen.StopDetailViewModel
+import com.danieljm.delijn.ui.screens.plan.PlanViewModel
+import com.danieljm.delijn.ui.screens.plan.PlanRepository
+import com.danieljm.delijn.ui.screens.plan.LocationRepository
+import com.danieljm.delijn.ui.screens.plan.SettingsRepository
+import com.danieljm.delijn.ui.screens.plan.DefaultPlanRepository
+import com.danieljm.delijn.ui.screens.plan.DefaultLocationRepository
+import com.danieljm.delijn.ui.screens.plan.DefaultSettingsRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -46,6 +54,11 @@ val appModule = module {
     single<BusRepository> { BusRepositoryImpl(get(), get()) }
     single<RouteRepository> { RouteRepositoryImpl(get(), get()) }
 
+    // Plan screen repositories
+    single<PlanRepository> { DefaultPlanRepository() }
+    single<LocationRepository> { DefaultLocationRepository() }
+    single<SettingsRepository> { DefaultSettingsRepository() }
+
     // Use cases
     single { SearchStopsUseCase(get()) }
     single { GetStopDetailsUseCase(get()) }
@@ -64,4 +77,6 @@ val appModule = module {
     viewModel { RouteDetailViewModel(get()) }
     viewModel { HomeViewModel() }
     viewModel { SettingsViewModel() }
+    viewModel { StopDetailViewModel(get(), get()) }
+    viewModel { PlanViewModel(get(), get(), get()) }
 }

@@ -16,7 +16,9 @@ data class NearbyStopDto(
     @Json(name = "naam") val naam: String?,
     @Json(name = "afstand") val afstand: Int,
     @Json(name = "geoCoordinaat") val geoCoordinaat: GeoCoordinaatDto,
-    @Json(name = "links") val links: List<LinkDto>? = null
+    @Json(name = "links") val links: List<LinkDto>? = null,
+    @Json(name = "entiteitnummer") val entiteitnummer: String? = null,
+    @Json(name = "haltenummer") val haltenummer: String? = null
 )
 
 @JsonClass(generateAdapter = true)

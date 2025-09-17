@@ -52,7 +52,9 @@ class StopRepositoryImpl(
                         id = stop.id,
                         name = stop.name,
                         latitude = stop.latitude,
-                        longitude = stop.longitude
+                        longitude = stop.longitude,
+                        entiteitnummer = stop.entiteitnummer,
+                        halteNummer = stop.halteNummer
                     )
                 }
                 dao.insertStops(entities)
