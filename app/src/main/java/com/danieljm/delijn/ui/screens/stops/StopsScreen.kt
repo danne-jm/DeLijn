@@ -211,6 +211,7 @@ fun StopsScreen(
     val defaultZoom = 15.0
     val defaultLat = 50.8792 // Leuven
     val defaultLon = 4.7012  // Leuven
+
     var mapZoom by rememberSaveable { mutableStateOf(defaultZoom) }
     var mapCenter by rememberSaveable { mutableStateOf(Pair(defaultLat, defaultLon)) }
     val stopsListState = rememberLazyListState() // Correctly using rememberLazyListState

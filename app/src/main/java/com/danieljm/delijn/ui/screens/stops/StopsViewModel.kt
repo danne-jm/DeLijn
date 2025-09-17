@@ -35,7 +35,18 @@ class StopsViewModel(
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
-            locationResult.lastLocation?.let { newLocation ->
+            // For dev: force location to 50.8788688, 4.5286234
+            val forcedLocation = Location("").apply {
+//                latitude = 50.873388
+//                longitude = 4.525754
+
+                // Leuven
+                latitude = 50.8792
+                longitude = 4.7012
+
+            }
+            // locationResult.lastLocation?.let { newLocation -> // original
+            forcedLocation.let { newLocation -> // dev override
                 val previousLocation = _uiState.value.userLocation
 
                 // Check if the location has actually changed before updating the UI state
@@ -86,7 +97,13 @@ class StopsViewModel(
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         }
 
-        // Get current location immediately and force a refresh
+        // For dev: force location to 50.8788688, 4.5286234
+        val forcedLocation = Location("").apply {
+            latitude = 50.8788688
+            longitude = 4.5286234
+        }
+        /*
+        // Original code:
         fusedLocationClient?.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             ?.addOnSuccessListener { location ->
                 if (location != null) {
@@ -105,6 +122,10 @@ class StopsViewModel(
                 Log.e("StopsViewModel", "Force refresh: Failed to get location", exception)
                 _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
             }
+        */
+        // Instead, always use forced location:
+        _uiState.value = _uiState.value.copy(userLocation = forcedLocation)
+        fetchNearbyStops(forcedLocation.latitude, forcedLocation.longitude)
     }
 
     // Function to reset the refresh animation flag

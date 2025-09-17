@@ -10,8 +10,12 @@ data class ServedLine(
 data class ArrivalInfo(
     val lineId: String,
     val destination: String,
-    val time: String, // formatted time e.g. "20:02"
-    val remainingMinutes: Long
+    val scheduledTime: String, // formatted scheduled time e.g. "20:02"
+    val time: String, // formatted real time e.g. "20:03"
+    val remainingMinutes: Long,
+    val omschrijving: String,
+    val expectedArrivalTime: Long,
+    val realArrivalTime: Long
 )
 
 data class StopDetailUiState(

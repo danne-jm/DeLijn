@@ -43,7 +43,7 @@ class StopDetailViewModel(
 
                     val allArrivals = try {
                         Log.i("StopDetailViewModel", "Fetching live arrivals for stop ${stop.entiteitnummer}/${stop.halteNummer}")
-                        fetchLiveArrivals(stop.entiteitnummer, stop.halteNummer)
+                        fetchLiveArrivals(stop.entiteitnummer, stop.halteNummer, servedLines)
                     } catch (e: Exception) {
                         Log.e("StopDetailViewModel", "Error in fetchLiveArrivals", e)
                         emptyList()
@@ -64,7 +64,7 @@ class StopDetailViewModel(
         }
     }
 
-    private suspend fun fetchLiveArrivals(entiteitnummer: String, halteNummer: String): List<ArrivalInfo> {
+    private suspend fun fetchLiveArrivals(entiteitnummer: String, halteNummer: String, servedLines: List<ServedLine>): List<ArrivalInfo> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
@@ -113,9 +113,11 @@ class StopDetailViewModel(
                         val lineId = doorkomst.optString("lijnnummer")
                         val destination = doorkomst.optString("bestemming")
                         val realTimeStr = doorkomst.optString("real-timeTijdstip")
+                        val scheduledTimeStr = doorkomst.optString("dienstregelingTijdstip", realTimeStr)
+                        val expectedTimeStr = doorkomst.optString("verwachtTijdstip", scheduledTimeStr)
 
-                        if (realTimeStr.isBlank() || lineId.isBlank()) {
-                            Log.d("StopDetailViewModel", "Skipping arrival: lineId=$lineId, realTime=$realTimeStr")
+                        if (realTimeStr.isBlank() || lineId.isBlank() || scheduledTimeStr.isBlank()) {
+                            Log.d("StopDetailViewModel", "Skipping arrival: lineId=$lineId, realTime=$realTimeStr, scheduledTime=$scheduledTimeStr")
                             continue
                         }
 
@@ -125,18 +127,31 @@ class StopDetailViewModel(
                             Log.e("StopDetailViewModel", "Failed to parse time: $realTimeStr", e)
                             continue
                         }
+                        val scheduledTime = try {
+                            LocalDateTime.parse(scheduledTimeStr, formatter)
+                        } catch (e: Exception) {
+                            Log.e("StopDetailViewModel", "Failed to parse scheduled time: $scheduledTimeStr", e)
+                            realTime
+                        }
 
+                        // Fix: remainingMinutes should be to real arrival time
                         var remaining = Duration.between(now, realTime).toMinutes()
                         if (remaining < 0) remaining = 0
+
+                        val omschrijving = servedLines.find { it.lineId == lineId }?.omschrijving ?: ""
 
                         val arrival = ArrivalInfo(
                             lineId = lineId,
                             destination = destination.ifBlank { "-" },
+                            scheduledTime = scheduledTime.format(timeFormatter),
                             time = realTime.format(timeFormatter),
-                            remainingMinutes = remaining
+                            remainingMinutes = remaining,
+                            omschrijving = omschrijving,
+                            expectedArrivalTime = scheduledTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                            realArrivalTime = realTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
                         )
                         allArrivals.add(arrival)
-                        Log.d("StopDetailViewModel", "Added arrival for line $lineId: $destination at ${arrival.time} (${arrival.remainingMinutes} min)")
+                        Log.d("StopDetailViewModel", "Added arrival for line $lineId: $destination at ${arrival.scheduledTime} (${arrival.remainingMinutes} min)")
                     }
                 }
 

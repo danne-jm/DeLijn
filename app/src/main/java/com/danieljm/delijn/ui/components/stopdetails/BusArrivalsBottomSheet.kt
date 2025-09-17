@@ -1,4 +1,4 @@
-package com.danieljm.delijn.ui.components.stops
+package com.danieljm.delijn.ui.components.stopdetails
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
@@ -29,23 +29,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
-import com.danieljm.delijn.domain.model.Stop
-import kotlin.math.*
+import com.danieljm.delijn.ui.screens.stopdetailscreen.ArrivalInfo
 
 @Composable
-fun BottomSheet(
+fun BusArrivalsBottomSheet(
     modifier: Modifier = Modifier,
     maxHeightRatio: Float = 0.85f,
     onHeightChanged: ((Dp) -> Unit)? = null,
-    stops: List<Stop> = emptyList(),
-    userLat: Double? = null,
-    userLon: Double? = null,
-    onStopClick: (Stop) -> Unit = {},
-    onRefresh: (() -> Unit)? = null,
+    arrivals: List<ArrivalInfo> = emptyList(),
     isLoading: Boolean = false,
+    listState: LazyListState,
+    stopName: String = "",
+    stopId: String = "",
+    onRefresh: (() -> Unit)? = null,
     shouldAnimateRefresh: Boolean = false,
-    onRefreshAnimationComplete: (() -> Unit)? = null,
-    listState: LazyListState
+    onRefreshAnimationComplete: (() -> Unit)? = null
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -56,24 +54,13 @@ fun BottomSheet(
     val expandedPx = screenHeightPx * maxHeightRatio
     val initialPx = collapsedPx
 
-    // Use rememberSaveable to preserve the height across navigation
     var heightPx by rememberSaveable { mutableStateOf(initialPx) }
     var isDragging by remember { mutableStateOf(false) }
 
     val heightDp by remember(heightPx) { derivedStateOf { with(density) { heightPx.toDp() } } }
-    val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BottomSheetHeightAnimation")
+    val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BusArrivalsBottomSheetHeightAnimation")
 
     val rotation = remember { Animatable(0f) }
-
-    val sortedStops = remember(stops, userLat, userLon) {
-        if (userLat != null && userLon != null) {
-            stops.sortedBy { stop ->
-                calculateDistance(userLat, userLon, stop.latitude, stop.longitude)
-            }
-        } else {
-            stops
-        }
-    }
 
     LaunchedEffect(heightDp, animatedHeightDp, isDragging) {
         val reportHeight = if (isDragging) heightDp else animatedHeightDp
@@ -82,9 +69,9 @@ fun BottomSheet(
 
     LaunchedEffect(shouldAnimateRefresh) {
         if (shouldAnimateRefresh) {
-            rotation.snapTo(0f) // Start from 0
+            rotation.snapTo(0f)
             rotation.animateTo(360f, animationSpec = tween(durationMillis = 800))
-            rotation.snapTo(0f) // Reset after animation
+            rotation.snapTo(0f)
             onRefreshAnimationComplete?.invoke()
         }
     }
@@ -96,15 +83,17 @@ fun BottomSheet(
         color = Color(0xFF1D2124),
         shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
     ) {
-        // Content
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(36.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Handle bar
                 Box(
                     modifier = Modifier
                         .width(36.dp)
@@ -123,25 +112,26 @@ fun BottomSheet(
                 )
             }
 
-            Row(
+            Row (
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(vertical = 4.dp), // Only vertical padding, horizontal is handled by parent
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Nearby Stops",
+                    text = stopName,
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
+                Spacer(modifier = Modifier.weight(1f))
                 Icon(
                     imageVector = Lucide.RefreshCw,
                     contentDescription = "Refresh",
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(32.dp)
                         .padding(start = 8.dp)
                         .graphicsLayer { rotationZ = rotation.value }
                         .clickable(enabled = onRefresh != null && !rotation.isRunning) {
@@ -149,31 +139,47 @@ fun BottomSheet(
                         }
                 )
             }
+            Row (
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp), // Only vertical padding
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
+                verticalAlignment = Alignment.CenterVertically
+            )  {
+                Text(
+                    text = stopId,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp
+                )
+            }
 
-            if (sortedStops.isEmpty()) {
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                }
+            } else if (arrivals.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("No nearby stops found.", color = Color.White.copy(alpha = 0.7f))
+                    Text("No live arrivals found.", color = Color.White.copy(alpha = 0.7f))
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 8.dp),
+                        .padding(top = 8.dp), // Only top padding
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     state = listState
                 ) {
-                    items(sortedStops, key = { it.id }) { stop ->
-                        StopCard(
-                            stop = stop,
-                            userLat = userLat,
-                            userLon = userLon,
-                            onClick = { onStopClick(stop) }
-                        )
+                    items(arrivals, key = { it.lineId + it.time }) { arrival ->
+                        BusCard(arrival = arrival)
                     }
                     item {
                         Spacer(modifier = Modifier.height(16.dp))
@@ -182,17 +188,4 @@ fun BottomSheet(
             }
         }
     }
-}
-
-private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val earthRadius = 6371.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-
-    val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-            sin(dLon / 2) * sin(dLon / 2)
-
-    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return earthRadius * c
 }
