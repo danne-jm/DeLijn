@@ -49,11 +49,18 @@ class StopDetailViewModel(
                         emptyList()
                     }
 
+                    val arrivalsToShow = if (allArrivals.isEmpty()) {
+                        Log.i("StopDetailViewModel", "No live arrivals, fetching scheduled arrivals.")
+                        fetchScheduledArrivals(stop.entiteitnummer, stop.halteNummer, servedLines)
+                    } else {
+                        allArrivals
+                    }
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stop.name,
                         servedLines = servedLines,
-                        allArrivals = allArrivals
+                        allArrivals = arrivalsToShow
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -165,6 +172,77 @@ class StopDetailViewModel(
                 allArrivals
             } catch (e: Exception) {
                 Log.e("StopDetailViewModel", "Error fetching live arrivals: ${e.message}", e)
+                emptyList()
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    private suspend fun fetchScheduledArrivals(entiteitnummer: String, halteNummer: String, servedLines: List<ServedLine>): List<ArrivalInfo> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val date = java.time.LocalDate.now().toString()
+                val url = "https://api.delijn.be/DLKernOpenData/api/v1/haltes/$entiteitnummer/$halteNummer/dienstregelingen?datum=$date"
+                Log.i("StopDetailViewModel", "Scheduled request URL: $url")
+                connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("Ocp-Apim-Subscription-Key", "f74c8e50b3364c6487355ce677d4a857")
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                }
+                val responseCode = connection.responseCode
+                Log.i("StopDetailViewModel", "Scheduled response code: $responseCode")
+                val response = if (responseCode in 200..299) {
+                    connection.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    val errorResponse = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    Log.w("StopDetailViewModel", "Scheduled API error ($responseCode): $errorResponse")
+                    return@withContext emptyList()
+                }
+                Log.i("StopDetailViewModel", "Scheduled response: $response")
+                val json = JSONObject(response)
+                val halteDoorkomsten = json.optJSONArray("halteDoorkomsten") ?: return@withContext emptyList()
+                val allArrivals = mutableListOf<ArrivalInfo>()
+                val now = LocalDateTime.now()
+                val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+                val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+                for (i in 0 until halteDoorkomsten.length()) {
+                    val halteObj = halteDoorkomsten.getJSONObject(i)
+                    val doorkomsten = halteObj.optJSONArray("doorkomsten") ?: continue
+                    for (j in 0 until doorkomsten.length()) {
+                        val doorkomst = doorkomsten.getJSONObject(j)
+                        val lineId = doorkomst.optString("lijnnummer")
+                        val destination = doorkomst.optString("bestemming")
+                        val scheduledTimeStr = doorkomst.optString("dienstregelingTijdstip")
+                        if (lineId.isBlank() || scheduledTimeStr.isBlank()) continue
+                        val scheduledTime = try {
+                            LocalDateTime.parse(scheduledTimeStr, formatter)
+                        } catch (e: Exception) {
+                            Log.e("StopDetailViewModel", "Failed to parse scheduled time: $scheduledTimeStr", e)
+                            continue
+                        }
+                        val remaining = Duration.between(now, scheduledTime).toMinutes().coerceAtLeast(0)
+                        val omschrijving = servedLines.find { it.lineId == lineId }?.omschrijving ?: ""
+                        val arrival = ArrivalInfo(
+                            lineId = lineId,
+                            destination = destination.ifBlank { "-" },
+                            scheduledTime = scheduledTime.format(timeFormatter),
+                            time = scheduledTime.format(timeFormatter),
+                            remainingMinutes = remaining,
+                            omschrijving = omschrijving,
+                            expectedArrivalTime = scheduledTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                            realArrivalTime = scheduledTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                            isScheduleOnly = true
+                        )
+                        allArrivals.add(arrival)
+                    }
+                }
+                allArrivals.sortBy { it.remainingMinutes }
+                allArrivals
+            } catch (e: Exception) {
+                Log.e("StopDetailViewModel", "Error fetching scheduled arrivals: ${e.message}", e)
                 emptyList()
             } finally {
                 connection?.disconnect()

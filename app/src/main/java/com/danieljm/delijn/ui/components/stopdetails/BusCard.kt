@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,6 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.composables.icons.lucide.BusFront
+import com.composables.icons.lucide.Lucide
 import com.danieljm.delijn.ui.screens.stopdetailscreen.ArrivalInfo
 
 @Composable
@@ -45,7 +48,12 @@ fun BusCard(arrival: ArrivalInfo) {
                         .size(48.dp)
                         .padding(end = 8.dp)
                 ) {
-                    // Placeholder for the icon
+                    Icon(
+                        imageVector = Lucide.BusFront,
+                        contentDescription = "Bus front",
+                        tint = Color(0xFFBDBDBD),
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 }
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50))
@@ -78,31 +86,31 @@ fun BusCard(arrival: ArrivalInfo) {
                     fontWeight = FontWeight.Bold
                 )
                 // Delay/on time logic
-                val delayMinutes = ((arrival.realArrivalTime - arrival.expectedArrivalTime) / 60_000).toInt()
-                val delayText = when {
-                    delayMinutes == 0 -> "on time"
-                    delayMinutes > 0 -> "+ $delayMinutes"
-                    else -> "- $delayMinutes"
+                if (!arrival.isScheduleOnly) {
+                    val delayMinutes = ((arrival.realArrivalTime - arrival.expectedArrivalTime) / 60_000).toInt()
+                    val delayText = when {
+                        delayMinutes == 0 -> "on time"
+                        delayMinutes > 0 -> "+$delayMinutes"
+                        else -> "-$delayMinutes"
+                    }
+                    val delayColor = when {
+                        delayMinutes == 0 -> Color(0xFF74C4AB) // green
+                        delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
+                        else -> Color(0xFF81D4FA) // baby blue
+                    }
+                    Text(
+                        text = delayText,
+                        color = delayColor,
+                        fontSize = 18.sp,
+                    )
                 }
-                val delayColor = when {
-                    delayMinutes == 0 -> Color(0xFF74C4AB) // green
-                    delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
-                    else -> Color(0xFF81D4FA) // baby blue
-                }
-                Text(
-                    text = delayText,
-                    color = delayColor,
-                    fontSize = 18.sp,
-                )
             }
         }
-        // Destination row
-        Row(
+        // Destination column
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text(
                 text = arrival.destination,
@@ -136,9 +144,25 @@ fun BusCard(arrival: ArrivalInfo) {
     }
 }
 
+// if time is more than 59 minutes, show in hours and minutes
+// if time is less than 0, show "at stop"
+// if time is 59 minutes or less, show in minutes
 private fun formatCountdown(minutes: Long): String {
+//    return when {
+//        minutes <= 0 -> "at stop"
+//        else -> "$minutes min"
+//    }
     return when {
         minutes <= 0 -> "at stop"
-        else -> "$minutes min"
+        minutes < 60 -> "$minutes min"
+        else -> {
+            val hours = minutes / 60
+            val mins = minutes % 60
+            if (mins == 0L) {
+                "$hours h"
+            } else {
+                "$hours h $mins min"
+            }
+        }
     }
 }

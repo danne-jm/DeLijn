@@ -15,7 +15,8 @@ data class ArrivalInfo(
     val remainingMinutes: Long,
     val omschrijving: String,
     val expectedArrivalTime: Long,
-    val realArrivalTime: Long
+    val realArrivalTime: Long,
+    val isScheduleOnly: Boolean = false // true if from dienstregelingen, false if live
 )
 
 data class StopDetailUiState(
