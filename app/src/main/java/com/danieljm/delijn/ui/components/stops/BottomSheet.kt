@@ -52,7 +52,7 @@ fun BottomSheet(
 
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-    val collapsedPx = screenHeightPx * 0.25f
+    val collapsedPx = with(density) { 160.dp.toPx() }
     val expandedPx = screenHeightPx * maxHeightRatio
     val initialPx = collapsedPx
 
@@ -64,8 +64,6 @@ fun BottomSheet(
     val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BottomSheetHeightAnimation")
 
     val rotation = remember { Animatable(0f) }
-
-    // ... (rest of the composable is largely unchanged)
 
     val sortedStops = remember(stops, userLat, userLon) {
         if (userLat != null && userLon != null) {

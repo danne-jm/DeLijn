@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -43,6 +46,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
 import com.danieljm.delijn.R
 import com.danieljm.delijn.ui.components.stops.BottomSheet
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -69,7 +73,6 @@ fun StopsScreen(
         onResult = { perms ->
             val permissionGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
             hasLocationPermission = permissionGranted
-            // Removed requestUserLocation call, just update permission state
         }
     )
 
@@ -80,9 +83,9 @@ fun StopsScreen(
     )
     var bottomSheetHeight by rememberSaveable(stateSaver = DpSaver) { mutableStateOf(160.dp) }
     var selectedStopId by remember { mutableStateOf<String?>(null) }
-    // Track if user explicitly requested centering on their location
     var pendingCenterOnLocation by remember { mutableStateOf(false) }
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
@@ -98,7 +101,7 @@ fun StopsScreen(
         }
     }
 
-    // Center map on user location only on first launch
+    // Center map on user location only on first launch or when explicitly requested
     LaunchedEffect(isFirstLaunch, userLocation) {
         if (isFirstLaunch && userLocation != null) {
             moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
@@ -106,7 +109,6 @@ fun StopsScreen(
         }
     }
 
-    // Center map when location is requested by FAB and becomes available
     LaunchedEffect(pendingCenterOnLocation, userLocation) {
         if (pendingCenterOnLocation && userLocation != null) {
             moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
@@ -114,47 +116,48 @@ fun StopsScreen(
         }
     }
 
-    // Always show user live location marker if userLocation is available
-    // Blinking alpha for user live dot
-    var userDotAlpha by remember { mutableStateOf(1f) }
-    // Animate alpha every second
+    // Animate the user's location marker smoothly
     LaunchedEffect(userLocation, mapViewRef) {
-        while (true) {
-            // Fade out
-            userDotAlpha = 0.3f
-            mapViewRef?.overlays?.filterIsInstance<Marker>()?.find { it.title == "You are here" }?.let { marker ->
-                marker.alpha = userDotAlpha
-                mapViewRef?.invalidate()
+        if (userLocation != null && mapViewRef != null) {
+            val oldMarker = mapViewRef!!.overlays.filterIsInstance<Marker>().find { it.title == "You are here" }
+            val newGeoPoint = GeoPoint(userLocation.latitude, userLocation.longitude)
+
+            if (oldMarker == null) {
+                // Initial placement of the marker
+                val marker = Marker(mapViewRef).apply {
+                    position = newGeoPoint
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "You are here"
+                    icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_dot)
+                }
+                mapViewRef!!.overlays.add(marker)
+                mapViewRef!!.invalidate()
+            } else {
+                // Animate the existing marker to the new position
+                val startPoint = oldMarker.position
+                val endPoint = newGeoPoint
+
+                val latAnimatable = Animatable(startPoint.latitude.toFloat())
+                val lonAnimatable = Animatable(startPoint.longitude.toFloat())
+
+                coroutineScope.launch {
+                    launch {
+                        latAnimatable.animateTo(endPoint.latitude.toFloat(), animationSpec = tween(1000)) {
+                            oldMarker.position.latitude = value.toDouble()
+                            mapViewRef?.invalidate()
+                        }
+                    }
+                    launch {
+                        lonAnimatable.animateTo(endPoint.longitude.toFloat(), animationSpec = tween(1000)) {
+                            oldMarker.position.longitude = value.toDouble()
+                            mapViewRef?.invalidate()
+                        }
+                    }
+                }
             }
-            kotlinx.coroutines.delay(500)
-            // Fade in
-            userDotAlpha = 1f
-            mapViewRef?.overlays?.filterIsInstance<Marker>()?.find { it.title == "You are here" }?.let { marker ->
-                marker.alpha = userDotAlpha
-                mapViewRef?.invalidate()
-            }
-            kotlinx.coroutines.delay(500)
         }
     }
 
-    LaunchedEffect(userLocation, mapViewRef) {
-        if (userLocation != null && mapViewRef != null) {
-            val lat = userLocation.latitude
-            val lon = userLocation.longitude
-            val geo = GeoPoint(lat, lon)
-            val overlaysToRemove = mapViewRef!!.overlays.filterIsInstance<Marker>().filter { it.title == "You are here" }
-            overlaysToRemove.forEach { mapViewRef!!.overlays.remove(it) }
-            val marker = Marker(mapViewRef).apply {
-                position = geo
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                title = "You are here"
-                icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_dot)
-                alpha = userDotAlpha
-            }
-            mapViewRef!!.overlays.add(marker)
-            mapViewRef!!.invalidate()
-        }
-    }
 
     LaunchedEffect(uiState.nearbyStops) {
         mapViewRef?.let { mapView ->
@@ -257,8 +260,6 @@ fun StopsScreen(
                         }
                     },
                     update = { mv ->
-                        // The update block is simpler now, just ensuring the reference is set.
-                        // Most logic is now handled by LaunchedEffects reacting to state changes.
                         mapViewRef = mv
                     },
                     modifier = Modifier.fillMaxSize()
@@ -335,10 +336,14 @@ fun StopsScreen(
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
                     onRefresh = {
                         if(hasLocationPermission) {
-                            viewModel.startLocationUpdates(context)
+                            // Use the new force refresh method instead
+                            viewModel.forceLocationUpdateAndRefresh(context)
                         } else {
                             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
+                    },
+                    onRefreshAnimationComplete = {
+                        viewModel.onRefreshAnimationComplete()
                     },
                     listState = stopsListState
                 )
@@ -355,7 +360,6 @@ private fun moveMapToLocation(mapView: MapView?, location: Location?, isInitialM
     val lat = location.latitude
     val lon = location.longitude
 
-    // On initial move, always center. Otherwise, only move if location has changed.
     if (!isInitialMove && lastCenteredLocation?.first == lat && lastCenteredLocation?.second == lon) {
         return
     }

@@ -31,24 +31,23 @@ class StopsViewModel(
     private var lastFetchedLocation: Location? = null
 
     // Threshold in meters. A new stop fetch will only occur if the user moves more than this distance.
-    private val LOCATION_CHANGE_THRESHOLD_METERS = 500f
+    private val LOCATION_CHANGE_THRESHOLD_METERS = 100f // Changed to 100m as requested
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
             locationResult.lastLocation?.let { newLocation ->
                 val previousLocation = _uiState.value.userLocation
-                // Always update the user's location for the live map marker
-                _uiState.value = _uiState.value.copy(userLocation = newLocation)
+
+                // Check if the location has actually changed before updating the UI state
+                if (previousLocation == null || newLocation.distanceTo(previousLocation) > 1f) {
+                    _uiState.value = _uiState.value.copy(userLocation = newLocation)
+                }
 
                 val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
 
-                // Fetch new stops only if the user has moved a significant distance
-                if (distance > LOCATION_CHANGE_THRESHOLD_METERS) {
+                // Fetch new stops only if the user has moved a significant distance, or it's the first location update.
+                if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
                     Log.d("StopsViewModel", "Location changed by ${distance}m. Fetching new stops.")
-                    fetchNearbyStops(newLocation.latitude, newLocation.longitude)
-                } else if (previousLocation == null) {
-                    // This handles the very first location update
-                    Log.d("StopsViewModel", "First location received. Fetching stops.")
                     fetchNearbyStops(newLocation.latitude, newLocation.longitude)
                 }
             }
@@ -73,6 +72,44 @@ class StopsViewModel(
     fun stopLocationUpdates() {
         fusedLocationClient?.removeLocationUpdates(locationCallback)
         Log.d("StopsViewModel", "Location updates stopped.")
+    }
+
+    // New function to force location update and bus stop refetch
+    @SuppressLint("MissingPermission")
+    fun forceLocationUpdateAndRefresh(context: Context) {
+        Log.d("StopsViewModel", "Force refresh triggered")
+
+        // Set shouldAnimateRefresh to trigger the refresh animation
+        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
+
+        if (fusedLocationClient == null) {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        }
+
+        // Get current location immediately and force a refresh
+        fusedLocationClient?.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            ?.addOnSuccessListener { location ->
+                if (location != null) {
+                    // Update UI state with new location
+                    _uiState.value = _uiState.value.copy(userLocation = location)
+
+                    // Force fetch new stops regardless of distance moved
+                    Log.d("StopsViewModel", "Force fetching stops at lat=${location.latitude}, lon=${location.longitude}")
+                    fetchNearbyStops(location.latitude, location.longitude)
+                } else {
+                    Log.w("StopsViewModel", "Force refresh: Unable to get current location")
+                    _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                }
+            }
+            ?.addOnFailureListener { exception ->
+                Log.e("StopsViewModel", "Force refresh: Failed to get location", exception)
+                _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+            }
+    }
+
+    // Function to reset the refresh animation flag
+    fun onRefreshAnimationComplete() {
+        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
     }
 
     fun fetchNearbyStops(latitude: Double, longitude: Double) {
