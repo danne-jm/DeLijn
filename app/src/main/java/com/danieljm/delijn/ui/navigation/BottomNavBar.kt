@@ -1,5 +1,7 @@
 package com.danieljm.delijn.ui.navigation
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -26,18 +29,45 @@ fun CustomBottomNavBar(
     currentRoute: String?,
     onItemClick: (String) -> Unit
 ) {
+    val selectedIndex = bottomNavItems.indexOfFirst { it.route == currentRoute }
+    val itemCount = bottomNavItems.size
+
+    // Animate the slider position
+    val animatedSliderPosition by animateFloatAsState(
+        targetValue = if (selectedIndex >= 0) selectedIndex.toFloat() else 0f,
+        animationSpec = tween(
+            durationMillis = 300,
+            delayMillis = 0
+        ),
+        label = "slider_position"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF1D2124)) // Background
             .drawBehind {
-                // Draw top border only
+                // Draw main top border
                 drawLine(
                     color = Color(0xFF43464C),
                     start = androidx.compose.ui.geometry.Offset(0f, 0f),
                     end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                    strokeWidth = 4.dp.toPx()
+                    strokeWidth = 3.dp.toPx()
                 )
+
+                // Draw animated floating slider if an item is selected
+                if (selectedIndex >= 0) {
+                    val itemWidth = size.width / itemCount
+                    val sliderStart = animatedSliderPosition * itemWidth
+                    val sliderEnd = sliderStart + itemWidth
+
+                    drawLine(
+                        color = Color(0xFFCDBB11), // Active yellow color
+                        start = androidx.compose.ui.geometry.Offset(sliderStart, 0f),
+                        end = androidx.compose.ui.geometry.Offset(sliderEnd, 0f),
+                        strokeWidth = 3.dp.toPx()
+                    )
+                }
             }
             .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
