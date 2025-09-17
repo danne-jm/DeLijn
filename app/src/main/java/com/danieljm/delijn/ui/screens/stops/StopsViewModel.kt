@@ -9,7 +9,11 @@ import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,8 +34,10 @@ class StopsViewModel(
     private var lastFetchLat: Double? = null
     private var lastFetchLon: Double? = null
 
+    private var locationCallback: LocationCallback? = null
+
     init {
-        // This auto-refresh logic can remain as is
+        // Periodic auto-refresh every 30 seconds using last fetched location
         viewModelScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(1000)
@@ -47,29 +53,53 @@ class StopsViewModel(
     }
 
     /**
-     * Centralized function to request the user's current location.
-     * This should be called from the UI when location is needed.
-     * It's safe to suppress the missing permission check here because
-     * the UI layer is responsible for verifying permissions before calling this.
+     * Start continuous location tracking every 2 seconds.
      */
     @SuppressLint("MissingPermission")
-    fun requestUserLocation(context: Context) {
+    fun startLocationUpdates(context: Context) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-            if (location != null) {
-                _uiState.value = _uiState.value.copy(userLocation = location)
-                // Automatically load stops for the new location
-                loadStopsForLocation(location.latitude, location.longitude)
+
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            2000 // 2 seconds
+        ).setMinUpdateIntervalMillis(2000)
+            .build()
+
+        // Remove old callback if already running
+        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val location = result.lastLocation ?: return
+                handleNewLocation(location)
             }
-        }.addOnFailureListener {
-            Log.e("StopsViewModel", "Failed to get location.", it)
+        }
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            locationCallback as LocationCallback,
+            context.mainLooper
+        )
+    }
+
+    private fun handleNewLocation(location: Location) {
+        val currentState = _uiState.value
+        val last = currentState.userLocation
+
+        _uiState.value = currentState.copy(userLocation = location)
+
+        // Fetch new stops only if user moved significantly (>100m)
+        if (last == null || location.distanceTo(last) > 100) {
+            loadStopsForLocation(location.latitude, location.longitude)
         }
     }
 
     fun loadStopsForLocation(latitude: Double, longitude: Double) {
         val currentState = _uiState.value
-        // Prevent reloading if location hasn't changed significantly
-        if (currentState.userLocation?.latitude == latitude && currentState.userLocation?.longitude == longitude && currentState.nearbyStops.isNotEmpty()) {
+        if (currentState.userLocation?.latitude == latitude &&
+            currentState.userLocation?.longitude == longitude &&
+            currentState.nearbyStops.isNotEmpty()
+        ) {
             return
         }
 

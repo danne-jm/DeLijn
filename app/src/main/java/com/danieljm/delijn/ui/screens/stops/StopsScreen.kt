@@ -52,9 +52,7 @@ fun StopsScreen(
         onResult = { perms ->
             val permissionGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
             hasLocationPermission = permissionGranted
-            if (permissionGranted) {
-                viewModel.requestUserLocation(context)
-            }
+            // Removed requestUserLocation call, just update permission state
         }
     )
 
@@ -77,7 +75,7 @@ fun StopsScreen(
     // Request permission or location once when the screen is first composed
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
-            viewModel.requestUserLocation(context)
+            viewModel.startLocationUpdates(context)
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
@@ -264,7 +262,7 @@ fun StopsScreen(
                             if (userLocation != null) {
                                 moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
                             } else {
-                                viewModel.requestUserLocation(context)
+                                viewModel.startLocationUpdates(context)
                                 pendingCenterOnLocation = true
                             }
                         } else {
@@ -297,9 +295,8 @@ fun StopsScreen(
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
                     onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() },
                     onRefresh = {
-                        // Ask ViewModel to find location and then fetch stops
                         if(hasLocationPermission) {
-                            viewModel.requestUserLocation(context)
+                            viewModel.startLocationUpdates(context)
                         } else {
                             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
