@@ -1,37 +1,54 @@
 package com.danieljm.delijn.ui.screens.stops
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
+import com.danieljm.delijn.R
+import com.danieljm.delijn.ui.components.stops.BottomSheet
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import com.danieljm.delijn.R
-import com.danieljm.delijn.ui.components.stops.BottomSheet
 
 @Composable
 fun StopsScreen(
@@ -98,6 +115,28 @@ fun StopsScreen(
     }
 
     // Always show user live location marker if userLocation is available
+    // Blinking alpha for user live dot
+    var userDotAlpha by remember { mutableStateOf(1f) }
+    // Animate alpha every second
+    LaunchedEffect(userLocation, mapViewRef) {
+        while (true) {
+            // Fade out
+            userDotAlpha = 0.3f
+            mapViewRef?.overlays?.filterIsInstance<Marker>()?.find { it.title == "You are here" }?.let { marker ->
+                marker.alpha = userDotAlpha
+                mapViewRef?.invalidate()
+            }
+            kotlinx.coroutines.delay(500)
+            // Fade in
+            userDotAlpha = 1f
+            mapViewRef?.overlays?.filterIsInstance<Marker>()?.find { it.title == "You are here" }?.let { marker ->
+                marker.alpha = userDotAlpha
+                mapViewRef?.invalidate()
+            }
+            kotlinx.coroutines.delay(500)
+        }
+    }
+
     LaunchedEffect(userLocation, mapViewRef) {
         if (userLocation != null && mapViewRef != null) {
             val lat = userLocation.latitude
@@ -109,7 +148,8 @@ fun StopsScreen(
                 position = geo
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 title = "You are here"
-                icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_gps)
+                icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_dot)
+                alpha = userDotAlpha
             }
             mapViewRef!!.overlays.add(marker)
             mapViewRef!!.invalidate()
@@ -293,7 +333,6 @@ fun StopsScreen(
                     },
                     isLoading = uiState.isLoading,
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
-                    onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() },
                     onRefresh = {
                         if(hasLocationPermission) {
                             viewModel.startLocationUpdates(context)

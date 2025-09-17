@@ -3,17 +3,14 @@ package com.danieljm.delijn.ui.screens.stops
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
+import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,121 +27,82 @@ class StopsViewModel(
     private val _uiState = MutableStateFlow(StopsUiState())
     val uiState: StateFlow<StopsUiState> = _uiState.asStateFlow()
 
-    private var lastFetchTimeMillis: Long = 0L
-    private var lastFetchLat: Double? = null
-    private var lastFetchLon: Double? = null
+    private var fusedLocationClient: FusedLocationProviderClient? = null
+    private var lastFetchedLocation: Location? = null
 
-    private var locationCallback: LocationCallback? = null
+    // Threshold in meters. A new stop fetch will only occur if the user moves more than this distance.
+    private val LOCATION_CHANGE_THRESHOLD_METERS = 500f
 
-    init {
-        // Periodic auto-refresh every 30 seconds using last fetched location
-        viewModelScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(1000)
-                val now = System.currentTimeMillis()
-                if (lastFetchTimeMillis != 0L && now - lastFetchTimeMillis > 30_000) {
-                    if (lastFetchLat != null && lastFetchLon != null) {
-                        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
-                        fetchNearbyStops(lastFetchLat!!, lastFetchLon!!, isAuto = true)
-                    }
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(locationResult: LocationResult) {
+            locationResult.lastLocation?.let { newLocation ->
+                val previousLocation = _uiState.value.userLocation
+                // Always update the user's location for the live map marker
+                _uiState.value = _uiState.value.copy(userLocation = newLocation)
+
+                val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
+
+                // Fetch new stops only if the user has moved a significant distance
+                if (distance > LOCATION_CHANGE_THRESHOLD_METERS) {
+                    Log.d("StopsViewModel", "Location changed by ${distance}m. Fetching new stops.")
+                    fetchNearbyStops(newLocation.latitude, newLocation.longitude)
+                } else if (previousLocation == null) {
+                    // This handles the very first location update
+                    Log.d("StopsViewModel", "First location received. Fetching stops.")
+                    fetchNearbyStops(newLocation.latitude, newLocation.longitude)
                 }
             }
         }
     }
 
-    /**
-     * Start continuous location tracking every 2 seconds.
-     */
     @SuppressLint("MissingPermission")
     fun startLocationUpdates(context: Context) {
-        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        if (fusedLocationClient == null) {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        }
 
-        val locationRequest = LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY,
-            2000 // 2 seconds
-        ).setMinUpdateIntervalMillis(2000)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
+            .setWaitForAccurateLocation(false)
+            .setMinUpdateIntervalMillis(2000)
+            .setMaxUpdateDelayMillis(5000)
             .build()
 
-        // Remove old callback if already running
-        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
-
-        locationCallback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                val location = result.lastLocation ?: return
-                handleNewLocation(location)
-            }
-        }
-
-        fusedLocationClient.requestLocationUpdates(
-            locationRequest,
-            locationCallback as LocationCallback,
-            context.mainLooper
-        )
+        fusedLocationClient?.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     }
 
-    private fun handleNewLocation(location: Location) {
-        val currentState = _uiState.value
-        val last = currentState.userLocation
-
-        _uiState.value = currentState.copy(userLocation = location)
-
-        // Fetch new stops only if user moved significantly (>100m)
-        if (last == null || location.distanceTo(last) > 100) {
-            loadStopsForLocation(location.latitude, location.longitude)
-        }
+    fun stopLocationUpdates() {
+        fusedLocationClient?.removeLocationUpdates(locationCallback)
+        Log.d("StopsViewModel", "Location updates stopped.")
     }
 
-    fun loadStopsForLocation(latitude: Double, longitude: Double) {
-        val currentState = _uiState.value
-        if (currentState.userLocation?.latitude == latitude &&
-            currentState.userLocation?.longitude == longitude &&
-            currentState.nearbyStops.isNotEmpty()
-        ) {
-            return
-        }
-
-        Log.d("StopsViewModel", "Load cached stops first for quick display")
-        viewModelScope.launch {
-            try {
-                val cached = withContext(Dispatchers.IO) { getCachedStopsUseCase() }
-                if (cached.isNotEmpty()) {
-                    Log.d("StopsViewModel", "Loaded ${cached.size} cached stops")
-                    _uiState.value = _uiState.value.copy(nearbyStops = cached)
-                }
-            } catch (e: Exception) {
-                Log.e("StopsViewModel", "Error loading cached stops", e)
-            }
-            // Then fetch live data
-            fetchNearbyStops(latitude, longitude)
-        }
-    }
-
-    fun fetchNearbyStops(latitude: Double, longitude: Double, isAuto: Boolean = false) {
+    fun fetchNearbyStops(latitude: Double, longitude: Double) {
         Log.d("StopsViewModel", "Starting to fetch nearby stops for lat=$latitude, lon=$longitude")
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, shouldAnimateRefresh = true)
-            lastFetchTimeMillis = System.currentTimeMillis()
-            lastFetchLat = latitude
-            lastFetchLon = longitude
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            // Create a location object to mark the position of this fetch
+            val fetchLocation = Location("").apply {
+                this.latitude = latitude
+                this.longitude = longitude
+            }
+            lastFetchedLocation = fetchLocation
             try {
                 val stops = withContext(Dispatchers.IO) { getNearbyStopsUseCase(latitude, longitude) }
                 _uiState.value = _uiState.value.copy(
                     nearbyStops = stops,
                     isLoading = false,
-                    shouldAnimateRefresh = false
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Failed to fetch nearby stops: ${e.message}",
-                    shouldAnimateRefresh = false
                 )
             }
         }
     }
 
-    fun onRefreshAnimationComplete() {
-        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+    override fun onCleared() {
+        super.onCleared()
+        stopLocationUpdates()
     }
 
     fun fetchLineDirectionsForStop(stopId: String) {
