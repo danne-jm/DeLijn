@@ -42,11 +42,15 @@ fun NavGraph(
         }
 
         composable(
-            Screen.StopDetail.route,
-            arguments = listOf(navArgument("stopId") { type = NavType.StringType })
+            "stopDetail/{stopId}/{stopName}",
+            arguments = listOf(
+                navArgument("stopId") { type = NavType.StringType },
+                navArgument("stopName") { type = NavType.StringType }
+            )
         ) { backStackEntry ->
             val stopId = backStackEntry.arguments?.getString("stopId") ?: ""
-            StopDetailScreen(stopId = stopId)
+            val stopName = backStackEntry.arguments?.getString("stopName") ?: ""
+            StopDetailScreen(stopId = stopId, stopName = stopName)
         }
     }
 }

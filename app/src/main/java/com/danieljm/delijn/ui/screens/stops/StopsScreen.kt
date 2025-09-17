@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -179,7 +180,7 @@ fun StopsScreen(
                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
                     relatedObject = stop.id
                     setOnMarkerClickListener { _, _ ->
-                        navController.navigate(Screen.StopDetail.route.replace("{stopId}", stop.id))
+                        navController.navigate("stopDetail/${stop.id}/${Uri.encode(stop.name)}")
                         true
                     }
                 }

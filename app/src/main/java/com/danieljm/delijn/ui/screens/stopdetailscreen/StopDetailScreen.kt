@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
@@ -29,12 +30,13 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun StopDetailScreen(
     stopId: String,
+    stopName: String,
     viewModel: StopDetailViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    LaunchedEffect(stopId) {
-        viewModel.loadStopDetails(stopId)
+    LaunchedEffect(stopId, stopName) {
+        viewModel.loadStopDetails(stopId, stopName)
     }
 
     val DpSaver = Saver<Dp, Float>(
@@ -44,7 +46,9 @@ fun StopDetailScreen(
     var bottomSheetHeight by rememberSaveable(stateSaver = DpSaver) { mutableStateOf(160.dp) }
     val arrivalsListState = rememberLazyListState()
 
-    Surface(modifier = Modifier.fillMaxSize()) {
+    Surface(modifier = Modifier
+        .fillMaxSize(),
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -59,6 +63,8 @@ fun StopDetailScreen(
             ) {
                 Text(text = "Stop Details", style = MaterialTheme.typography.headlineMedium)
                 Spacer(modifier = Modifier.height(16.dp))
+                Text(text = stopName, style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.height(8.dp))
                 if (uiState.error != null) {
                     Text(text = "Error: ${uiState.error}", color = MaterialTheme.colorScheme.error)
                 }
@@ -71,7 +77,7 @@ fun StopDetailScreen(
                 isLoading = uiState.isLoading,
                 onHeightChanged = { height -> bottomSheetHeight = height },
                 listState = arrivalsListState,
-                stopName = uiState.stopName,
+                stopName = stopName,
                 stopId = uiState.stopId
             )
         }

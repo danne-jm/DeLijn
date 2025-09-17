@@ -51,7 +51,7 @@ fun BusArrivalsBottomSheet(
 
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-    val collapsedPx = with(density) { 160.dp.toPx() }
+    val collapsedPx = with(density) { 180.dp.toPx() }
     val expandedPx = screenHeightPx * maxHeightRatio
     val initialPx = collapsedPx
 

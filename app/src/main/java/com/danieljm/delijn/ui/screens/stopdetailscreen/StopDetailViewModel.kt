@@ -25,8 +25,8 @@ class StopDetailViewModel(
     private val _uiState = MutableStateFlow(StopDetailUiState())
     val uiState: StateFlow<StopDetailUiState> = _uiState
 
-    fun loadStopDetails(stopId: String) {
-        _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId)
+    fun loadStopDetails(stopId: String, stopName: String) {
+        _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId, stopName = stopName)
         viewModelScope.launch {
             try {
                 val stop = getStopDetailsUseCase(stopId)
@@ -58,7 +58,7 @@ class StopDetailViewModel(
 
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        stopName = stop.name,
+                        stopName = stopName, // Use the passed stopName, not the fetched one
                         servedLines = servedLines,
                         allArrivals = arrivalsToShow
                     )

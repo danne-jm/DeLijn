@@ -12,7 +12,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Plan : Screen("plan", "Plan", Lucide.Footprints)
     object Stops : Screen("stops", "Stops", Lucide.Search)
     object Settings : Screen("settings", "More", Lucide.Ellipsis)
-    object StopDetail : Screen("stopDetail/{stopId}", "Stop Detail", Lucide.Search)
+    object StopDetail : Screen("stopDetail/{stopId}/{stopName}", "Stop Detail", Lucide.Search)
 }
 
 val bottomNavItems = listOf(

@@ -72,7 +72,7 @@ fun BusCard(arrival: ArrivalInfo) {
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(24.dp))
 //                Card(
 //                    colors = CardDefaults.cardColors(containerColor = Color(0xFF424242))
 //                ) {
@@ -92,7 +92,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     Text(
                         text = "Bus",
                         color = Color.White,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
