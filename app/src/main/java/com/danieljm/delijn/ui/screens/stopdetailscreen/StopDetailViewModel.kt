@@ -13,6 +13,11 @@ import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 
 class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
@@ -26,6 +31,55 @@ class StopDetailViewModel(
     val uiState: StateFlow<StopDetailUiState> = _uiState
     // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
     private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
+
+    private suspend fun fetchBusPosition(vehicleId: String): Pair<Double, Double>? {
+        val apiUrl = "https://api.delijn.be/gtfs/v3/realtime?json=true&position=true&vehicleid=$vehicleId"
+        val apiKey = "5eacdcf7e85c4637a14f4d627403935a"
+        return withContext(Dispatchers.IO) {
+            val url = URL(apiUrl)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("Ocp-Apim-Subscription-Key", apiKey)
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            try {
+                val response = conn.inputStream.bufferedReader().readText()
+                val json = JSONObject(response)
+                val entities = json.optJSONArray("entity") ?: return@withContext null
+                for (i in 0 until entities.length()) {
+                    val entity = entities.getJSONObject(i)
+                    if (entity.has("vehicle")) {
+                        val vehicle = entity.getJSONObject("vehicle")
+                        val position = vehicle.optJSONObject("position") ?: continue
+                        val lat = position.optDouble("latitude")
+                        val lon = position.optDouble("longitude")
+                        if (!lat.isNaN() && !lon.isNaN()) {
+                            return@withContext Pair(lat, lon)
+                        }
+                    }
+                }
+                null
+            } catch (e: Exception) {
+                Log.e("StopDetailViewModel", "Error fetching bus position", e)
+                null
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
+
+    private suspend fun fetchAllBusPositions(arrivals: List<com.danieljm.delijn.domain.model.ArrivalInfo>): List<BusPosition> {
+        val positions = mutableListOf<BusPosition>()
+        for (arrival in arrivals) {
+            val vehicleId = arrival.vrtnum
+            if (!vehicleId.isNullOrEmpty()) {
+                val pos = fetchBusPosition(vehicleId)
+                if (pos != null) {
+                    positions.add(BusPosition(vehicleId, pos.first, pos.second))
+                }
+            }
+        }
+        return positions
+    }
 
     fun loadStopDetails(stopId: String, stopName: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId, stopName = stopName)
@@ -67,6 +121,8 @@ class StopDetailViewModel(
                     // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
                     val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
 
+                    val busPositions = fetchAllBusPositions(enriched)
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stopName,
@@ -74,7 +130,8 @@ class StopDetailViewModel(
                         allArrivals = enriched,
                         lastArrivalsRefreshMillis = System.currentTimeMillis(),
                         stopLatitude = stop.latitude,
-                        stopLongitude = stop.longitude
+                        stopLongitude = stop.longitude,
+                        busPositions = busPositions
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -161,11 +218,14 @@ class StopDetailViewModel(
                 // Enrich arrivals
                 val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
 
+                val busPositions = fetchAllBusPositions(enriched)
+
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     allArrivals = enriched,
                     servedLines = servedLines,
-                    lastArrivalsRefreshMillis = System.currentTimeMillis()
+                    lastArrivalsRefreshMillis = System.currentTimeMillis(),
+                    busPositions = busPositions
                 )
             } catch (e: Exception) {
                 Log.e("StopDetailViewModel", "Error during arrivals refresh", e)

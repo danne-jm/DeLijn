@@ -82,6 +82,29 @@ fun StopDetailScreen(
         }
     }
 
+    // Add live bus markers for all buses with real-time positions
+    LaunchedEffect(uiState.busPositions, mapViewRef) {
+        val mv = mapViewRef
+        if (mv != null) {
+            // Remove previous bus markers
+            val toRemove = mv.overlays.filterIsInstance<Marker>().filter { it.title?.startsWith("Bus marker") == true }
+            toRemove.forEach { mv.overlays.remove(it) }
+
+            uiState.busPositions.forEach { bus ->
+                val markerPoint = org.osmdroid.util.GeoPoint(bus.latitude, bus.longitude)
+                val marker = Marker(mv).apply {
+                    position = markerPoint
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "Bus marker ${bus.vehicleId}"
+                    snippet = "Bus ID: ${bus.vehicleId}"
+                    icon = ContextCompat.getDrawable(context, R.drawable.bus_side)
+                }
+                mv.overlays.add(marker)
+            }
+            mv.invalidate()
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(

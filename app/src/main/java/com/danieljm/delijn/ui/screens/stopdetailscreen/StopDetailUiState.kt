@@ -3,6 +3,12 @@ package com.danieljm.delijn.ui.screens.stopdetailscreen
 import com.danieljm.delijn.domain.model.ArrivalInfo
 import com.danieljm.delijn.domain.model.ServedLine
 
+data class BusPosition(
+    val vehicleId: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
 data class StopDetailUiState(
     val stopId: String = "",
     val stopName: String = "",
@@ -16,5 +22,7 @@ data class StopDetailUiState(
     val lastArrivalsRefreshMillis: Long? = null,
     // Coordinates for centering the map on the stop
     val stopLatitude: Double? = null,
-    val stopLongitude: Double? = null
+    val stopLongitude: Double? = null,
+    // Live bus coordinates and vehicle ID
+    val busPositions: List<BusPosition> = emptyList()
 )
