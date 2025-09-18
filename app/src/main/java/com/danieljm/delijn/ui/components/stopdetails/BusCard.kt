@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,7 +31,6 @@ import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
 import com.danieljm.delijn.domain.model.ArrivalInfo
-import kotlin.compareTo
 import kotlin.math.abs
 
 @Composable
@@ -93,7 +91,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     }
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(lineBgColor) // Use dynamic color
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -108,7 +106,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFF424242))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -183,8 +181,17 @@ fun BusCard(arrival: ArrivalInfo) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
+
+                    // Compute remaining milliseconds (prefer real-time if available)
+                    val now = System.currentTimeMillis()
+                    val remainingMillis = when {
+                        arrival.realArrivalTime > 0L -> arrival.realArrivalTime - now
+                        arrival.expectedArrivalTime > 0L -> arrival.expectedArrivalTime - now
+                        else -> Long.MIN_VALUE
+                    }
+
                     Text(
-                        text = if (arrival.remainingMinutes <= 0) "at stop" else "in ${formatCountdown(arrival.remainingMinutes)}",
+                        text = formatCountdownMillis(remainingMillis),
                         color = Color.White,
                         fontSize = 14.sp,
                         modifier = Modifier
@@ -197,17 +204,26 @@ fun BusCard(arrival: ArrivalInfo) {
     }
 }
 
-private fun formatCountdown(minutes: Long): String {
+private fun formatCountdownMillis(remainingMillis: Long): String {
+    // If no valid timestamp available
+    if (remainingMillis == Long.MIN_VALUE) return ""
+
     return when {
-        minutes <= 0 -> "at stop"
-        minutes < 60 -> "$minutes min"
+        remainingMillis < 0L -> "departed"
+        remainingMillis < 20_000L -> "at stop"
+        remainingMillis < 60_000L -> "arriving"
         else -> {
-            val hours = minutes / 60
-            val mins = minutes % 60
-            if (mins == 0L) {
-                "$hours h"
+            val minutes = remainingMillis / 60_000L
+            if (minutes < 60L) {
+                "in $minutes min"
             } else {
-                "$hours h $mins min"
+                val hours = minutes / 60L
+                val mins = minutes % 60L
+                if (mins == 0L) {
+                    "in $hours h"
+                } else {
+                    "in $hours h $mins min"
+                }
             }
         }
     }
