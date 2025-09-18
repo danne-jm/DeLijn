@@ -53,17 +53,30 @@ data class MapState(
     }
 }
 
+data class CustomMarker(
+    val id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val title: String,
+    val snippet: String? = null,
+    val iconResourceId: Int,
+    val onClick: (() -> Unit)? = null
+)
+
 @Composable
 fun MapComponent(
     modifier: Modifier = Modifier,
     userLocation: Location? = null,
     stops: List<Stop> = emptyList(),
+    customMarkers: List<CustomMarker> = emptyList(),
     mapState: MapState = MapState(),
     onMapStateChanged: (MapState) -> Unit = {},
     onStopMarkerClick: (Stop) -> Unit = {},
     animateToLocation: Location? = null,
     animateToStop: Stop? = null,
-    showUserLocationMarker: Boolean = true
+    showUserLocationMarker: Boolean = true,
+    centerOnStop: Stop? = null,
+    mapCenterOffset: Double = 0.0
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -100,6 +113,25 @@ fun MapComponent(
     LaunchedEffect(animateToStop) {
         if (animateToStop != null && mapViewRef != null) {
             val geoPoint = GeoPoint(animateToStop.latitude, animateToStop.longitude)
+            mapViewRef!!.controller.animateTo(geoPoint)
+        }
+    }
+
+    // Center on specific stop with offset
+    LaunchedEffect(centerOnStop, mapCenterOffset) {
+        if (centerOnStop != null && mapViewRef != null) {
+            val lat = centerOnStop.latitude
+            val lon = centerOnStop.longitude
+
+            // Apply offset if specified (offset in meters)
+            val adjustedLat = if (mapCenterOffset != 0.0) {
+                lat - (mapCenterOffset / 111_000.0) // 1 degree latitude ≈ 111km
+            } else {
+                lat
+            }
+
+            val geoPoint = GeoPoint(adjustedLat, lon)
+            mapViewRef!!.controller.setZoom(18.0)
             mapViewRef!!.controller.animateTo(geoPoint)
         }
     }
@@ -146,11 +178,13 @@ fun MapComponent(
         }
     }
 
-    // Update stop markers
-    LaunchedEffect(stops) {
+    // Update stop markers and custom markers
+    LaunchedEffect(stops, customMarkers) {
         mapViewRef?.let { mapView ->
-            // Remove previous stop markers (keep "You are here" marker)
-            val overlaysToRemove = mapView.overlays.filter { it is Marker && it.title != "You are here" }
+            // Remove previous markers (keep "You are here" marker)
+            val overlaysToRemove = mapView.overlays.filter {
+                it is Marker && it.title != "You are here"
+            }
             overlaysToRemove.forEach { mapView.overlays.remove(it) }
 
             // Add markers for each stop
@@ -165,6 +199,24 @@ fun MapComponent(
                     relatedObject = stop.id
                     setOnMarkerClickListener { _, _ ->
                         onStopMarkerClick(stop)
+                        true
+                    }
+                }
+                mapView.overlays.add(marker)
+            }
+
+            // Add custom markers
+            customMarkers.forEach { customMarker ->
+                val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
+                val marker = Marker(mapView).apply {
+                    position = gp
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = customMarker.title
+                    snippet = customMarker.snippet
+                    icon = ContextCompat.getDrawable(context, customMarker.iconResourceId)
+                    relatedObject = customMarker.id
+                    setOnMarkerClickListener { _, _ ->
+                        customMarker.onClick?.invoke()
                         true
                     }
                 }

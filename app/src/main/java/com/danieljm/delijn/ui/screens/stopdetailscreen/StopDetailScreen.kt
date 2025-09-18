@@ -2,15 +2,10 @@ package com.danieljm.delijn.ui.screens.stopdetailscreen
 
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,20 +31,17 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.danieljm.delijn.R
+import com.danieljm.delijn.domain.model.Stop
+import com.danieljm.delijn.ui.components.map.CustomMarker
+import com.danieljm.delijn.ui.components.map.MapComponent
+import com.danieljm.delijn.ui.components.map.MapState
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Heart
 import com.composables.icons.lucide.Lucide
 import org.koin.androidx.compose.koinViewModel
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +59,11 @@ fun StopDetailScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val arrivalsListState = rememberLazyListState()
-    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+    // Map state management using the same state type as StopsScreen
+    var mapState by rememberSaveable(stateSaver = MapState.Saver) {
+        mutableStateOf(MapState(zoom = 18.0))
+    }
 
     // Set status bar color to match top app bar and restore on dispose
     val statusBarColor = Color(0xFF1D2124)
@@ -94,62 +91,34 @@ fun StopDetailScreen(
         }
     }
 
-    // Initialize osmdroid configuration once
-    LaunchedEffect(Unit) {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", android.content.Context.MODE_PRIVATE))
+    // Create custom markers for buses
+    val busMarkers = remember(uiState.busPositions) {
+        uiState.busPositions.map { bus ->
+            CustomMarker(
+                id = "bus_${bus.vehicleId}",
+                latitude = bus.latitude,
+                longitude = bus.longitude,
+                title = "Bus ${bus.vehicleId}",
+                snippet = "Bus ID: ${bus.vehicleId}",
+                iconResourceId = R.drawable.bus_side
+            )
+        }
     }
 
-    // Center the map and add a stop marker when coordinates are available
-    LaunchedEffect(uiState.stopLatitude, uiState.stopLongitude, mapViewRef) {
-        val mv = mapViewRef
+    // Create the current stop as a Stop object for centering
+    val currentStop = remember(uiState.stopLatitude, uiState.stopLongitude) {
         val lat = uiState.stopLatitude
         val lon = uiState.stopLongitude
-        if (mv != null && lat != null && lon != null) {
-            // Remove previous stop markers
-            val toRemove = mv.overlays.filterIsInstance<Marker>().filter { it.title == "Stop marker" }
-            toRemove.forEach { mv.overlays.remove(it) }
-
-            val markerPoint = GeoPoint(lat, lon)
-            val marker = Marker(mv).apply {
-                position = markerPoint
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                title = "Stop marker"
-                snippet = stopName
-                icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
-            }
-            mv.overlays.add(marker)
-
-            // Offset the map center so the marker appears higher on the screen
-            val offsetMeters = 250.0 // Move map center 250 meters south (so marker is higher)
-            val offsetLat = lat - (offsetMeters / 111_000.0) // 1 degree latitude ≈ 111km
-            val centerPoint = GeoPoint(offsetLat, lon)
-            mv.controller.setZoom(18.0)
-            mv.controller.animateTo(centerPoint)
-            mv.invalidate()
-        }
-    }
-
-    // Add live bus markers for all buses with real-time positions
-    LaunchedEffect(uiState.busPositions, mapViewRef) {
-        val mv = mapViewRef
-        if (mv != null) {
-            // Remove previous bus markers
-            val toRemove = mv.overlays.filterIsInstance<Marker>().filter { it.title?.startsWith("Bus marker") == true }
-            toRemove.forEach { mv.overlays.remove(it) }
-
-            uiState.busPositions.forEach { bus ->
-                val markerPoint = GeoPoint(bus.latitude, bus.longitude)
-                val marker = Marker(mv).apply {
-                    position = markerPoint
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = "Bus marker ${bus.vehicleId}"
-                    snippet = "Bus ID: ${bus.vehicleId}"
-                    icon = ContextCompat.getDrawable(context, R.drawable.bus_side)
-                }
-                mv.overlays.add(marker)
-            }
-            mv.invalidate()
-        }
+        if (lat != null && lon != null) {
+            Stop(
+                id = stopId,
+                name = stopName,
+                latitude = lat,
+                longitude = lon,
+                entiteitnummer = "",
+                halteNummer = ""
+            )
+        } else null
     }
 
     // Use Scaffold to properly handle the top app bar and content layout
@@ -185,19 +154,16 @@ fun StopDetailScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Map fills the remaining space after accounting for top app bar
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        setTileSource(TileSourceFactory.MAPNIK)
-                        setMultiTouchControls(true)
-                        mapViewRef = this
-                    }
-                },
-                update = { mv ->
-                    mapViewRef = mv
-                },
-                modifier = Modifier.fillMaxSize()
+            // Use the shared MapComponent instead of creating a new map
+            MapComponent(
+                modifier = Modifier.fillMaxSize(),
+                stops = listOfNotNull(currentStop), // Show the current stop as a marker
+                customMarkers = busMarkers, // Show bus positions
+                mapState = mapState,
+                onMapStateChanged = { newState -> mapState = newState },
+                centerOnStop = currentStop,
+                mapCenterOffset = 250.0, // Offset map center so stop appears higher on screen
+                showUserLocationMarker = false // Don't show user location in detail view
             )
 
             // Error overlay positioned at the top of the content area
