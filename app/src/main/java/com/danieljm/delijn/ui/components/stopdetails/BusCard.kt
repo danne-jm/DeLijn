@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
-import com.danieljm.delijn.ui.screens.stopdetailscreen.ArrivalInfo
+import com.danieljm.delijn.domain.model.ArrivalInfo
 
 @Composable
 fun BusCard(arrival: ArrivalInfo) {
@@ -35,7 +35,7 @@ fun BusCard(arrival: ArrivalInfo) {
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp), // Add padding to match stops BottomSheet style
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = Color(0xFF2A2D32)
         )
     ) {
         Row(

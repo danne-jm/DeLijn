@@ -2,7 +2,7 @@ package com.danieljm.delijn.ui.screens.searchdetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
+import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 
 class SearchDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
-    private val getRealTimeArrivalsUseCase: GetRealTimeArrivalsUseCase
+    private val getRealTimeArrivalsUseCase: GetRealTimeArrivalsForStopUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SearchDetailUiState())
     val uiState: StateFlow<SearchDetailUiState> = _uiState.asStateFlow()

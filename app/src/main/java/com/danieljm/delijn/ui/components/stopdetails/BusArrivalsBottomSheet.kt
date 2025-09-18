@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
-import com.danieljm.delijn.ui.screens.stopdetailscreen.ArrivalInfo
+import com.danieljm.delijn.domain.model.ArrivalInfo
 
 @Composable
 fun BusArrivalsBottomSheet(
@@ -178,7 +178,7 @@ fun BusArrivalsBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     state = listState
                 ) {
-                    items(arrivals, key = { it.lineId + it.time }) { arrival ->
+                    items(items = arrivals, key = { arrival -> arrival.lineId + arrival.time }) { arrival ->
                         BusCard(arrival = arrival)
                     }
                     item {

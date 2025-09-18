@@ -6,6 +6,8 @@ import com.danieljm.delijn.data.remote.dto.NearbyStopsResponseDto
 import com.danieljm.delijn.data.remote.dto.RealTimeDto
 import com.danieljm.delijn.data.remote.dto.RouteDto
 import com.danieljm.delijn.data.remote.dto.StopDto
+import com.danieljm.delijn.data.remote.dto.RealTimeArrivalsResponseDto
+import com.danieljm.delijn.data.remote.dto.ScheduledArrivalsResponseDto
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -40,4 +42,18 @@ interface DeLijnApiService {
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("haltenummer") haltenummer: String
     ): LineDirectionsResponseDto
+
+    @GET("haltes/{entiteitnummer}/{haltenummer}/real-time")
+    suspend fun getRealTimeArrivals(
+        @Path("entiteitnummer") entiteitnummer: String,
+        @Path("haltenummer") haltenummer: String,
+        @Query("maxAantalDoorkomsten") maxAantalDoorkomsten: Int = 10
+    ): RealTimeArrivalsResponseDto
+
+    @GET("haltes/{entiteitnummer}/{haltenummer}/dienstregelingen")
+    suspend fun getScheduledArrivals(
+        @Path("entiteitnummer") entiteitnummer: String,
+        @Path("haltenummer") haltenummer: String,
+        @Query("datum") datum: String
+    ): ScheduledArrivalsResponseDto
 }

@@ -209,12 +209,7 @@ fun StopsScreen(
         }
     }
 
-    val defaultZoom = 15.0
-    val defaultLat = 50.8792 // Leuven
-    val defaultLon = 4.7012  // Leuven
-
-    var mapZoom by rememberSaveable { mutableStateOf(defaultZoom) }
-    var mapCenter by rememberSaveable { mutableStateOf(Pair(defaultLat, defaultLon)) }
+    var mapZoom by rememberSaveable { mutableStateOf(15.0) }
     val stopsListState = rememberLazyListState() // Correctly using rememberLazyListState
 
     DisposableEffect(mapViewRef) {
@@ -222,7 +217,7 @@ fun StopsScreen(
         if (mapView != null) {
             val listener = object : org.osmdroid.events.MapListener {
                 override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
-                    mapCenter = Pair(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                    // not tracking map center in state to avoid hardcoded defaults
                     return true
                 }
                 override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
@@ -253,7 +248,7 @@ fun StopsScreen(
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
                             controller.setZoom(mapZoom)
-                            controller.setCenter(GeoPoint(mapCenter.first, mapCenter.second))
+                            // Do not set a hardcoded center here. The map will be centered once we have the user's location.
                             mapViewRef = this
                         }
                     },

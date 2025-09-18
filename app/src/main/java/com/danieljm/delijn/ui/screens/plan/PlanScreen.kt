@@ -7,11 +7,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun PlanScreen(
-    viewModel: PlanViewModel
-) {
+fun PlanScreen(viewModel: PlanViewModel = koinViewModel()) {
     val uiState = viewModel.uiState.collectAsState().value
     Column(
         modifier = Modifier
@@ -21,7 +20,7 @@ fun PlanScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Plan Screen",
+            text = "Plan",
             style = MaterialTheme.typography.headlineMedium
         )
         Spacer(modifier = Modifier.height(16.dp))

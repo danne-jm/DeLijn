@@ -1,9 +1,33 @@
 package com.danieljm.delijn.ui.screens.search
 
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun SearchScreen(viewModel: SearchViewModel) {
-    // TODO: Implement search results UI
+fun SearchScreen(viewModel: SearchViewModel = koinViewModel()) {
+    val uiState = viewModel.uiState.collectAsState().value
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        Text(text = "Search", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedTextField(
+            value = uiState.query,
+            onValueChange = { viewModel.search(it) },
+            label = { Text("Search stops") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(text = "Results: ${uiState.results.size}")
+    }
 }
-

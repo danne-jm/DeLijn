@@ -6,4 +6,3 @@ data class Bus(
     val line: String,
     val destination: String
 )
-

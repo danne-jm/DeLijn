@@ -35,32 +35,26 @@ class StopsViewModel(
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
-            // For dev: force location to 50.8788688, 4.5286234
-            val forcedLocation = Location("").apply {
-//                latitude = 50.873388
-//                longitude = 4.525754
-
-                // Leuven
-                latitude = 50.8792
-                longitude = 4.7012
-
+            // Use the real location provided by the location services
+            val newLocation = locationResult.lastLocation
+            if (newLocation == null) {
+                Log.w("StopsViewModel", "Received null location from LocationResult")
+                return
             }
-            // locationResult.lastLocation?.let { newLocation -> // original
-            forcedLocation.let { newLocation -> // dev override
-                val previousLocation = _uiState.value.userLocation
 
-                // Check if the location has actually changed before updating the UI state
-                if (previousLocation == null || newLocation.distanceTo(previousLocation) > 1f) {
-                    _uiState.value = _uiState.value.copy(userLocation = newLocation)
-                }
+            val previousLocation = _uiState.value.userLocation
 
-                val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
+            // Update UI state only when the location actually changed to avoid unnecessary recomposition
+            if (previousLocation == null || newLocation.distanceTo(previousLocation) > 1f) {
+                _uiState.value = _uiState.value.copy(userLocation = newLocation)
+            }
 
-                // Fetch new stops only if the user has moved a significant distance, or it's the first location update.
-                if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
-                    Log.d("StopsViewModel", "Location changed by ${distance}m. Fetching new stops.")
-                    fetchNearbyStops(newLocation.latitude, newLocation.longitude)
-                }
+            val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
+
+            // Fetch new stops only if the user has moved a significant distance, or it's the first location update.
+            if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
+                Log.d("StopsViewModel", "Location changed by ${distance}m. Fetching new stops.")
+                fetchNearbyStops(newLocation.latitude, newLocation.longitude)
             }
         }
     }
@@ -97,13 +91,7 @@ class StopsViewModel(
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         }
 
-        // For dev: force location to 50.8788688, 4.5286234
-        val forcedLocation = Location("").apply {
-            latitude = 50.8788688
-            longitude = 4.5286234
-        }
-        /*
-        // Original code:
+        // Request a fresh current location. If unavailable, fall back to lastLocation.
         fusedLocationClient?.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             ?.addOnSuccessListener { location ->
                 if (location != null) {
@@ -114,18 +102,40 @@ class StopsViewModel(
                     Log.d("StopsViewModel", "Force fetching stops at lat=${location.latitude}, lon=${location.longitude}")
                     fetchNearbyStops(location.latitude, location.longitude)
                 } else {
-                    Log.w("StopsViewModel", "Force refresh: Unable to get current location")
-                    _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                    // Fallback: try last known location
+                    fusedLocationClient?.lastLocation
+                        ?.addOnSuccessListener { lastLoc ->
+                            if (lastLoc != null) {
+                                _uiState.value = _uiState.value.copy(userLocation = lastLoc)
+                                fetchNearbyStops(lastLoc.latitude, lastLoc.longitude)
+                            } else {
+                                Log.w("StopsViewModel", "Force refresh: Unable to obtain a location")
+                                _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                            }
+                        }
+                        ?.addOnFailureListener { ex ->
+                            Log.e("StopsViewModel", "Force refresh: Failed to get last known location", ex)
+                            _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                        }
                 }
             }
             ?.addOnFailureListener { exception ->
-                Log.e("StopsViewModel", "Force refresh: Failed to get location", exception)
-                _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                Log.e("StopsViewModel", "Force refresh: Failed to get current location", exception)
+                // Try to fallback to last known location
+                fusedLocationClient?.lastLocation
+                    ?.addOnSuccessListener { lastLoc ->
+                        if (lastLoc != null) {
+                            _uiState.value = _uiState.value.copy(userLocation = lastLoc)
+                            fetchNearbyStops(lastLoc.latitude, lastLoc.longitude)
+                        } else {
+                            _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                        }
+                    }
+                    ?.addOnFailureListener { ex ->
+                        Log.e("StopsViewModel", "Force refresh: Failed to get last known location", ex)
+                        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+                    }
             }
-        */
-        // Instead, always use forced location:
-        _uiState.value = _uiState.value.copy(userLocation = forcedLocation)
-        fetchNearbyStops(forcedLocation.latitude, forcedLocation.longitude)
     }
 
     // Function to reset the refresh animation flag

@@ -7,8 +7,10 @@ import com.danieljm.delijn.data.local.dao.StopDao
 import com.danieljm.delijn.data.repository.BusRepositoryImpl
 import com.danieljm.delijn.data.repository.RouteRepositoryImpl
 import com.danieljm.delijn.data.repository.StopRepositoryImpl
+import com.danieljm.delijn.data.repository.StopArrivalsRepositoryImpl
 import com.danieljm.delijn.domain.repository.BusRepository
 import com.danieljm.delijn.domain.repository.RouteRepository
+import com.danieljm.delijn.domain.repository.StopArrivalsRepository
 import com.danieljm.delijn.domain.repository.StopRepository
 import com.danieljm.delijn.domain.usecase.GetBusDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
@@ -16,7 +18,9 @@ import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
+import com.danieljm.delijn.domain.usecase.GetScheduledArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
+import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsForStopUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
 import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
@@ -53,6 +57,7 @@ val appModule = module {
     single<StopRepository> { StopRepositoryImpl(get(), get()) }
     single<BusRepository> { BusRepositoryImpl(get(), get()) }
     single<RouteRepository> { RouteRepositoryImpl(get(), get()) }
+    single<StopArrivalsRepository> { StopArrivalsRepositoryImpl(get()) }
 
     // Plan screen repositories
     single<PlanRepository> { DefaultPlanRepository() }
@@ -65,6 +70,8 @@ val appModule = module {
     single { GetBusDetailsUseCase(get()) }
     single { GetRouteDetailsUseCase(get()) }
     single { GetRealTimeArrivalsUseCase(get()) }
+    single { GetScheduledArrivalsUseCase(get()) }
+    single { GetRealTimeArrivalsForStopUseCase(get()) }
     single { GetNearbyStopsUseCase(get()) }
     single { GetCachedStopsUseCase(get()) }
     single { GetLineDirectionsForStopUseCase(get()) }
@@ -77,6 +84,6 @@ val appModule = module {
     viewModel { RouteDetailViewModel(get()) }
     viewModel { HomeViewModel() }
     viewModel { SettingsViewModel() }
-    viewModel { StopDetailViewModel(get(), get()) }
+    viewModel { StopDetailViewModel(get(), get(), get(), get()) }
     viewModel { PlanViewModel(get(), get(), get()) }
 }
