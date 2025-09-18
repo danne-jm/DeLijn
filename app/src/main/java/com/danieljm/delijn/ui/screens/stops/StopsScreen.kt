@@ -91,6 +91,11 @@ fun StopsScreen(
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
+    // Persistent map center and zoom state
+    var savedMapCenterList by rememberSaveable { mutableStateOf<List<Double>?>(null) }
+    val savedMapCenter: GeoPoint? = savedMapCenterList?.let { GeoPoint(it[0], it[1]) }
+    var savedMapZoom by rememberSaveable { mutableStateOf(15.0) }
+
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
@@ -105,10 +110,15 @@ fun StopsScreen(
         }
     }
 
-    // Center map on user location only on first launch or when explicitly requested
+    // Center map on saved position or user location only on first launch
     LaunchedEffect(isFirstLaunch, userLocation) {
-        if (isFirstLaunch && userLocation != null) {
-            moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+        if (isFirstLaunch) {
+            if (savedMapCenter != null && mapViewRef != null) {
+                mapViewRef!!.controller.setZoom(savedMapZoom)
+                mapViewRef!!.controller.animateTo(savedMapCenter)
+            } else if (userLocation != null) {
+                moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+            }
             isFirstLaunch = false
         }
     }
@@ -162,7 +172,6 @@ fun StopsScreen(
         }
     }
 
-
     LaunchedEffect(uiState.nearbyStops) {
         mapViewRef?.let { mapView ->
             // Remove previous stop markers (keep "You are here" marker)
@@ -180,6 +189,10 @@ fun StopsScreen(
                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
                     relatedObject = stop.id
                     setOnMarkerClickListener { _, _ ->
+                        // Save current map center/zoom before navigating
+                        val center = mapView.mapCenter
+                        savedMapCenterList = listOf(center.latitude, center.longitude)
+                        savedMapZoom = mapView.zoomLevelDouble
                         navController.navigate("stopDetail/${stop.id}/${Uri.encode(stop.name)}")
                         true
                     }
@@ -217,11 +230,14 @@ fun StopsScreen(
         if (mapView != null) {
             val listener = object : org.osmdroid.events.MapListener {
                 override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
-                    // not tracking map center in state to avoid hardcoded defaults
+                    // Save map center on scroll
+                    val center = mapView.mapCenter
+                    savedMapCenterList = listOf(center.latitude, center.longitude)
                     return true
                 }
                 override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
                     mapZoom = mapView.zoomLevelDouble
+                    savedMapZoom = mapView.zoomLevelDouble
                     return true
                 }
             }
@@ -247,8 +263,10 @@ fun StopsScreen(
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(mapZoom)
-                            // Do not set a hardcoded center here. The map will be centered once we have the user's location.
+                            controller.setZoom(savedMapZoom)
+                            if (savedMapCenter != null) {
+                                controller.setCenter(savedMapCenter)
+                            }
                             mapViewRef = this
                         }
                     },
@@ -295,6 +313,9 @@ fun StopsScreen(
                         if (hasLocationPermission) {
                             if (userLocation != null) {
                                 moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+                                // Save new center/zoom
+                                savedMapCenterList = listOf(userLocation.latitude, userLocation.longitude)
+                                savedMapZoom = 18.0
                             } else {
                                 viewModel.startLocationUpdates(context)
                                 pendingCenterOnLocation = true
@@ -324,6 +345,8 @@ fun StopsScreen(
                     onHeightChanged = { height -> bottomSheetHeight = height },
                     onStopClick = { stop ->
                         mapViewRef?.controller?.animateTo(GeoPoint(stop.latitude, stop.longitude))
+                        // Save new center
+                        savedMapCenterList = listOf(stop.latitude, stop.longitude)
                     },
                     isLoading = uiState.isLoading,
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
@@ -344,12 +367,8 @@ fun StopsScreen(
         }
     }
 
-    // Always center map on user location as soon as it is available
-    LaunchedEffect(userLocation) {
-        if (userLocation != null && mapViewRef != null) {
-            moveMapToLocation(mapViewRef, userLocation, isInitialMove = false)
-        }
-    }
+    // Remove always center map on user location as soon as it is available
+    // Only center if explicitly requested (FAB or first launch)
 }
 
 private var lastCenteredLocation: Pair<Double, Double>? = null
