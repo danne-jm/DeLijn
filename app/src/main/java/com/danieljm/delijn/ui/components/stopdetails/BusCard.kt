@@ -109,8 +109,8 @@ fun BusCard(arrival: ArrivalInfo) {
                     val delayMinutes = ((arrival.realArrivalTime - arrival.expectedArrivalTime) / 60_000).toInt()
                     val delayText = when {
                         delayMinutes == 0 -> "on time"
-                        delayMinutes > 0 -> "+$delayMinutes"
-                        else -> "-$delayMinutes"
+                        delayMinutes > 0 -> "+ $delayMinutes"
+                        else -> "- $delayMinutes"
                     }
                     val delayColor = when {
                         delayMinutes == 0 -> Color(0xFF74C4AB) // green
