@@ -122,6 +122,23 @@ fun StopDetailScreen(
         } else null
     }
 
+    // Automatically refresh arrivals every 30 seconds
+    LaunchedEffect(uiState.lastArrivalsRefreshMillis) {
+        val refreshIntervalMillis = 30_000L
+        val startTime = uiState.lastArrivalsRefreshMillis ?: 0L
+        while (true) {
+            val elapsed = System.currentTimeMillis() - startTime
+            val remaining = refreshIntervalMillis - elapsed
+            if (remaining <= 0) {
+                // Trigger auto-refresh and animation
+                viewModel.refreshArrivals(force = true)
+                break
+            }
+            // Check every second
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
     // Use Scaffold to properly handle the top app bar and content layout
     Scaffold(
         modifier = Modifier.fillMaxSize(),
