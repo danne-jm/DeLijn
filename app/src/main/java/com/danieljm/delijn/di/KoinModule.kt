@@ -39,11 +39,15 @@ import com.danieljm.delijn.ui.screens.plan.SettingsRepository
 import com.danieljm.delijn.ui.screens.plan.DefaultPlanRepository
 import com.danieljm.delijn.ui.screens.plan.DefaultLocationRepository
 import com.danieljm.delijn.ui.screens.plan.DefaultSettingsRepository
+import com.danieljm.delijn.ui.components.map.MapViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule = module {
+    // ViewModel for shared map state
+    single { MapViewModel() }
+
     // Network
     single { NetworkModule.provideOkHttpClient() }
     single { NetworkModule.provideRetrofit(get()) }
