@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -20,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,10 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.danieljm.delijn.R
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
 import com.composables.icons.lucide.ChevronLeft
@@ -59,8 +64,35 @@ fun StopDetailScreen(
     }
 
     val context = LocalContext.current
+    val view = LocalView.current
     val arrivalsListState = rememberLazyListState()
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+    // Set status bar color to match top app bar and restore on dispose
+    val statusBarColor = Color(0xFF1D2124)
+    DisposableEffect(Unit) {
+        val window = (context as? androidx.activity.ComponentActivity)?.window
+        val originalStatusBarColor = window?.statusBarColor
+        val originalLightStatusBars = window?.let {
+            WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars
+        }
+
+        // Set the dark status bar for this screen
+        window?.let {
+            it.statusBarColor = statusBarColor.toArgb()
+            WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = false
+        }
+
+        // Cleanup function to restore original values when leaving the screen
+        onDispose {
+            window?.let {
+                originalStatusBarColor?.let { color -> it.statusBarColor = color }
+                originalLightStatusBars?.let { isLight ->
+                    WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = isLight
+                }
+            }
+        }
+    }
 
     // Initialize osmdroid configuration once
     LaunchedEffect(Unit) {
@@ -122,9 +154,7 @@ fun StopDetailScreen(
 
     // Use Scaffold to properly handle the top app bar and content layout
     Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -132,7 +162,7 @@ fun StopDetailScreen(
                         text = "Stop",
                         color = Color.White,
                     )
-                        },
+                },
                 navigationIcon = {
                     IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
                         Icon(Lucide.ChevronLeft, contentDescription = "Back", tint = Color.White)
