@@ -1,5 +1,7 @@
 package com.danieljm.delijn.ui.components.stopdetails
 
+import android.util.Log
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,33 @@ import kotlin.math.abs
 
 @Composable
 fun BusCard(arrival: ArrivalInfo) {
+    // Add logging for color and badge text
+    Log.i(
+        "BusCard",
+        "Rendering BusCard: lineId=${arrival.lineId}, lineNumberPublic=${arrival.lineNumberPublic}, lineBackgroundColorHex=${arrival.lineBackgroundColorHex}"
+    )
+    // Determine badge background color from hex if available, else fallback.
+    val lineBgColor: Color = try {
+        arrival.lineBackgroundColorHex?.let { hex ->
+            Log.i("BusCard", "Parsing color hex: $hex")
+            Color(AndroidColor.parseColor(hex))
+        } ?: Color(0xFF4CAF50)
+    } catch (e: Exception) {
+        Log.w("BusCard", "Failed to parse color hex: ${arrival.lineBackgroundColorHex}", e)
+        Color(0xFF4CAF50)
+    }
+
+    val lineBadgeText = arrival.lineNumberPublic ?: arrival.lineId
+    val lineBadgeTextColor: Color = try {
+        arrival.lineForegroundColorHex?.let { hex ->
+            Color(AndroidColor.parseColor(hex))
+        } ?: Color.Black
+    } catch (e: Exception) {
+        Color.Black
+    }
+    val busIdTextColor: Color = Color.White
+    Log.i("BusCard", "Badge text: $lineBadgeText, Badge color: $lineBgColor, Badge text color: $lineBadgeTextColor")
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -65,12 +94,12 @@ fun BusCard(arrival: ArrivalInfo) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF4CAF50)) // Unique bus line color
+                            .background(lineBgColor) // Use dynamic color
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = arrival.lineId,
-                            color = Color.White,
+                            text = lineBadgeText,
+                            color = lineBadgeTextColor,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -90,11 +119,9 @@ fun BusCard(arrival: ArrivalInfo) {
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        // The original file uses arrival.vrtnum, but ArrivalInfo does not have this property.
-                        // Assuming it's a placeholder. Keeping as a placeholder or using a different value as needed.
                         Text(
-                            text = "678081",
-                            color = Color.White,
+                            text = arrival.vrtnum ?: "-",
+                            color = busIdTextColor,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -156,15 +183,6 @@ fun BusCard(arrival: ArrivalInfo) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-//                    Text(
-//                        text = "in ${formatCountdown(arrival.remainingMinutes)}",
-//                        color = Color.White,
-//                        fontSize = 14.sp,
-//                        modifier = Modifier
-//                            .align(Alignment.CenterVertically)
-//                            .padding(start = 8.dp)
-//                    )
-                    // if remaining time is in minutes then "in X min", else "at stop" and not current "in at stop" which is wrong
                     Text(
                         text = if (arrival.remainingMinutes <= 0) "at stop" else "in ${formatCountdown(arrival.remainingMinutes)}",
                         color = Color.White,

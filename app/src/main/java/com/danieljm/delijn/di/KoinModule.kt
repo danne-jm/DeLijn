@@ -15,6 +15,8 @@ import com.danieljm.delijn.domain.repository.StopRepository
 import com.danieljm.delijn.domain.usecase.GetBusDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionDetailUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteDetailsUseCase
@@ -75,6 +77,10 @@ val appModule = module {
     single { GetNearbyStopsUseCase(get()) }
     single { GetCachedStopsUseCase(get()) }
     single { GetLineDirectionsForStopUseCase(get()) }
+    // New search use-case for fetching public line number and colors by omschrijving
+    single { GetLineDirectionsSearchUseCase(get()) }
+    // Use-case to fetch a single lijnrichting detail (contains kleuren and publiek nummer)
+    single { GetLineDirectionDetailUseCase(get()) }
 
     // ViewModels
     viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>()) }
@@ -84,6 +90,6 @@ val appModule = module {
     viewModel { RouteDetailViewModel(get()) }
     viewModel { HomeViewModel() }
     viewModel { SettingsViewModel() }
-    viewModel { StopDetailViewModel(get(), get(), get(), get()) }
+    viewModel { StopDetailViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { PlanViewModel(get(), get(), get()) }
 }

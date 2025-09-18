@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.model.ServedLine
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionDetailUseCase
 import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetScheduledArrivalsUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,10 +18,14 @@ class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
     private val getLineDirectionsForStopUseCase: GetLineDirectionsForStopUseCase,
     private val getRealTimeArrivalsUseCase: GetRealTimeArrivalsUseCase,
-    private val getScheduledArrivalsUseCase: GetScheduledArrivalsUseCase
+    private val getScheduledArrivalsUseCase: GetScheduledArrivalsUseCase,
+    private val getLineDirectionDetailUseCase: GetLineDirectionDetailUseCase,
+    private val getLineDirectionsSearchUseCase: GetLineDirectionsSearchUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StopDetailUiState())
     val uiState: StateFlow<StopDetailUiState> = _uiState
+    // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
+    private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
 
     fun loadStopDetails(stopId: String, stopName: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId, stopName = stopName)
@@ -33,7 +39,9 @@ class StopDetailViewModel(
                             lineId = line.lijnnummer,
                             lineName = line.lijnnummer,
                             omschrijving = line.omschrijving,
-                            asFromTo = line.omschrijving
+                            asFromTo = line.omschrijving,
+                            entiteitnummer = line.entiteitnummer,
+                            richting = line.richting
                         )
                     }
 
@@ -56,11 +64,14 @@ class StopDetailViewModel(
                         }
                     } else allArrivals
 
+                    // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
+                    val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stopName,
                         servedLines = servedLines,
-                        allArrivals = arrivalsToShow,
+                        allArrivals = enriched,
                         lastArrivalsRefreshMillis = System.currentTimeMillis()
                     )
                 } else {
@@ -100,7 +111,9 @@ class StopDetailViewModel(
                                 lineId = line.lijnnummer,
                                 lineName = line.lijnnummer,
                                 omschrijving = line.omschrijving,
-                                asFromTo = line.omschrijving
+                                asFromTo = line.omschrijving,
+                                entiteitnummer = line.entiteitnummer,
+                                richting = line.richting
                             )
                         }
                     }
@@ -139,9 +152,12 @@ class StopDetailViewModel(
                     }
                 } else allArrivals
 
+                // Enrich arrivals
+                val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
+
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    allArrivals = arrivalsToShow,
+                    allArrivals = enriched,
                     servedLines = servedLines,
                     lastArrivalsRefreshMillis = System.currentTimeMillis()
                 )
@@ -154,5 +170,57 @@ class StopDetailViewModel(
 
     fun onRefreshAnimationComplete() {
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+    }
+
+    private suspend fun enrichArrivalsWithLineColors(
+        arrivals: List<com.danieljm.delijn.domain.model.ArrivalInfo>,
+        servedLines: List<ServedLine>,
+        forceRefresh: Boolean = false
+    ): List<com.danieljm.delijn.domain.model.ArrivalInfo> {
+        if (arrivals.isEmpty()) return arrivals
+
+        val cache = lineDetailCache
+        if (forceRefresh) cache.clear()
+
+        fun lineIdsMatch(a: String?, b: String?): Boolean {
+            if (a == null || b == null) return false
+            val ta = a.trim()
+            val tb = b.trim()
+            if (ta.equals(tb, ignoreCase = true)) return true
+            return try { ta.toIntOrNull() == tb.toIntOrNull() } catch (e: Exception) { false }
+        }
+
+        return arrivals.map { arrival ->
+            val key = "${arrival.lineId}|${arrival.omschrijving}"
+            val cached = if (!forceRefresh) cache[key] else null
+            val searchResult = cached ?: try {
+                val resp = getLineDirectionsSearchUseCase(arrival.omschrijving)
+                val candidate = resp.lijnrichtingen.find { lr ->
+                    lineIdsMatch(lr.lijnnummer, arrival.lineId) &&
+                    (lr.omschrijving?.equals(arrival.omschrijving.orEmpty(), ignoreCase = true) == true ||
+                     lr.omschrijving?.contains(arrival.omschrijving.orEmpty(), ignoreCase = true) == true)
+                } ?: resp.lijnrichtingen.firstOrNull()
+                if (candidate != null) {
+                    cache[key] = candidate
+                }
+                candidate
+            } catch (e: Exception) {
+                Log.w("StopDetailViewModel", "Failed to fetch line color for ${arrival.lineId} oms=${arrival.omschrijving}", e)
+                null
+            }
+
+            if (searchResult == null) {
+                Log.w("StopDetailViewModel", "No color/public line found for ${arrival.lineId} oms=${arrival.omschrijving}")
+                arrival
+            } else {
+                Log.i("StopDetailViewModel", "Enriching arrival line ${arrival.lineId} with public=${searchResult.lijnNummerPubliek} color=${searchResult.kleurAchterGrond}")
+                arrival.copy(
+                    lineNumberPublic = searchResult.lijnNummerPubliek,
+                    lineBackgroundColorHex = searchResult.kleurAchterGrond,
+                    lineForegroundColorHex = searchResult.kleurVoorGrond,
+                    lineForegroundRandColorHex = searchResult.kleurVoorGrondRand
+                )
+            }
+        }
     }
 }

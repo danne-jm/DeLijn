@@ -9,6 +9,7 @@ import com.danieljm.delijn.data.mapper.toDomain
 import com.danieljm.delijn.data.remote.api.DeLijnApiService
 import com.danieljm.delijn.data.remote.dto.RealTimeDto
 import com.danieljm.delijn.domain.model.LineDirectionsResponse
+import com.danieljm.delijn.domain.model.LineDirectionsSearchResponse
 import com.danieljm.delijn.domain.model.Stop
 import com.danieljm.delijn.domain.repository.StopRepository
 
@@ -80,5 +81,20 @@ class StopRepositoryImpl(
     override suspend fun getLineDirectionsForStop(entiteitnummer: String, haltenummer: String): LineDirectionsResponse {
         val response = api.getLineDirectionsForStop(entiteitnummer, haltenummer)
         return response.toDomain()
+    }
+
+    override suspend fun searchLineDirections(zoekArgument: String, maxAantalHits: Int): LineDirectionsSearchResponse {
+        val response = api.searchLineDirections(zoekArgument, maxAantalHits)
+        return response.toDomain()
+    }
+
+    override suspend fun getLineDirectionDetail(entiteitnummer: String, lijnnummer: String, richting: String): com.danieljm.delijn.domain.model.LineDirectionSearch? {
+        return try {
+            val dto = api.getLineDirectionDetail(entiteitnummer, lijnnummer, richting)
+            dto.toDomain()
+        } catch (e: Exception) {
+            // If core API doesn't have details, return null
+            null
+        }
     }
 }

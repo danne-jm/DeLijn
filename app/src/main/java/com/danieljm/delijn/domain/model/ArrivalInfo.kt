@@ -4,7 +4,9 @@ data class ServedLine(
     val lineId: String,
     val lineName: String,
     val omschrijving: String,
-    val asFromTo: String
+    val asFromTo: String,
+    val entiteitnummer: String = "",
+    val richting: String = ""
 )
 
 data class ArrivalInfo(
@@ -17,5 +19,10 @@ data class ArrivalInfo(
     val expectedArrivalTime: Long,
     val realArrivalTime: Long,
     val isScheduleOnly: Boolean = false,
-    val vrtnum: String? = null // Bus id, nullable for scheduled arrivals
+    val vrtnum: String? = null, // Bus id, nullable for scheduled arrivals
+    // New optional fields populated by ViewModel after calling the search API
+    val lineNumberPublic: String? = null,
+    val lineBackgroundColorHex: String? = null,
+    val lineForegroundColorHex: String? = null,
+    val lineForegroundRandColorHex: String? = null
 )
