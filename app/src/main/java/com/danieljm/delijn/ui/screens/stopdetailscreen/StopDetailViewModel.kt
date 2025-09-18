@@ -72,7 +72,9 @@ class StopDetailViewModel(
                         stopName = stopName,
                         servedLines = servedLines,
                         allArrivals = enriched,
-                        lastArrivalsRefreshMillis = System.currentTimeMillis()
+                        lastArrivalsRefreshMillis = System.currentTimeMillis(),
+                        stopLatitude = stop.latitude,
+                        stopLongitude = stop.longitude
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -105,6 +107,8 @@ class StopDetailViewModel(
                     if (stop != null) {
                         entiteitnummer = stop.entiteitnummer
                         halteNummer = stop.halteNummer
+                        // Set coordinates so the map can center if needed
+                        _uiState.value = _uiState.value.copy(stopLatitude = stop.latitude, stopLongitude = stop.longitude)
                         val directionsResponse = getLineDirectionsForStopUseCase(stop.entiteitnummer, stop.halteNummer)
                         servedLines = directionsResponse.lijnrichtingen.map { line ->
                             ServedLine(
@@ -126,6 +130,8 @@ class StopDetailViewModel(
                     if (stop != null) {
                         entiteitnummer = stop.entiteitnummer
                         halteNummer = stop.halteNummer
+                        // also ensure coords are set
+                        _uiState.value = _uiState.value.copy(stopLatitude = stop.latitude, stopLongitude = stop.longitude)
                     }
                 }
 

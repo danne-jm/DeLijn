@@ -54,9 +54,10 @@ fun BusArrivalsBottomSheet(
 
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-    val collapsedPx = with(density) { 180.dp.toPx() }
+    val collapsedPx = with(density) { 188.dp.toPx() }
     val expandedPx = screenHeightPx * maxHeightRatio
-    val initialPx = collapsedPx
+    // 50% of screen height as initial height
+    val initialPx = ((expandedPx - collapsedPx) / 2f + collapsedPx).coerceIn(collapsedPx, expandedPx)
 
     var heightPx by rememberSaveable { mutableStateOf(initialPx) }
     var isDragging by remember { mutableStateOf(false) }

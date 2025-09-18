@@ -13,5 +13,8 @@ data class StopDetailUiState(
     // Controls the refresh animation for the bottom sheet refresh icon
     val shouldAnimateRefresh: Boolean = false,
     // Timestamp in millis of the last arrivals refresh (automatic or manual)
-    val lastArrivalsRefreshMillis: Long? = null
+    val lastArrivalsRefreshMillis: Long? = null,
+    // Coordinates for centering the map on the stop
+    val stopLatitude: Double? = null,
+    val stopLongitude: Double? = null
 )

@@ -54,7 +54,8 @@ fun BottomSheet(
 
     val collapsedPx = with(density) { 160.dp.toPx() }
     val expandedPx = screenHeightPx * maxHeightRatio
-    val initialPx = collapsedPx
+    // 50% of screen height as initial height
+    val initialPx = ((expandedPx - collapsedPx) / 2f + collapsedPx).coerceIn(collapsedPx, expandedPx)
 
     // Use rememberSaveable to preserve the height across navigation
     var heightPx by rememberSaveable { mutableStateOf(initialPx) }
