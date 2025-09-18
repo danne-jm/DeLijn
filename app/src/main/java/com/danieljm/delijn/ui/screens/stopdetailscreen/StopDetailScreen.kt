@@ -1,14 +1,20 @@
 package com.danieljm.delijn.ui.screens.stopdetailscreen
 
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,12 +24,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.danieljm.delijn.R
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
+import com.composables.icons.lucide.ChevronLeft
+import com.composables.icons.lucide.Heart
+import com.composables.icons.lucide.Lucide
 import org.koin.androidx.compose.koinViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -31,6 +41,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StopDetailScreen(
     stopId: String,
@@ -38,7 +49,7 @@ fun StopDetailScreen(
     viewModel: StopDetailViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-
+    val onBackPressedDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     LaunchedEffect(stopId, stopName) {
         viewModel.loadStopDetails(stopId, stopName)
     }
@@ -106,45 +117,63 @@ fun StopDetailScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        setTileSource(TileSourceFactory.MAPNIK)
-                        setMultiTouchControls(true)
-                        mapViewRef = this
+        Column(modifier = Modifier.fillMaxSize()) {
+            CenterAlignedTopAppBar(
+                title = { Text("stop") },
+                navigationIcon = {
+                    IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
+                        Icon(Lucide.ChevronLeft, contentDescription = "Back", tint = Color.Black)
                     }
                 },
-                update = { mv -> mapViewRef = mv },
-                modifier = Modifier.fillMaxSize()
+                actions = {
+                    IconButton(onClick = { /* TODO: Heart action */ }) {
+                        Icon(Lucide.Heart, contentDescription = "Favorite", tint = Color.Black)
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
+            Box(modifier = Modifier.weight(1f)) {
+                AndroidView(
+                    factory = { ctx ->
+                        MapView(ctx).apply {
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            setMultiTouchControls(true)
+                            mapViewRef = this
+                        }
+                    },
+                    update = { mv -> mapViewRef = mv },
+                    modifier = Modifier.fillMaxSize()
+                )
 
-            // Top overlay with stop title and errors
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                uiState.error?.let { err ->
-                    Text(text = "Error: $err", color = MaterialTheme.colorScheme.error)
+                // Top overlay with stop title and errors
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    uiState.error?.let { err ->
+                        Text(text = "Error: $err", color = MaterialTheme.colorScheme.error)
+                    }
                 }
-            }
 
-            BusArrivalsBottomSheet(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter),
-                arrivals = uiState.allArrivals,
-                isLoading = uiState.isLoading,
-                onHeightChanged = { /* no-op in detail screen */ },
-                listState = arrivalsListState,
-                stopName = stopName,
-                stopId = uiState.stopId,
-                shouldAnimateRefresh = uiState.shouldAnimateRefresh,
-                onRefresh = { viewModel.refreshArrivals(force = true) },
-                onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
-            )
+                BusArrivalsBottomSheet(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter),
+                    arrivals = uiState.allArrivals,
+                    isLoading = uiState.isLoading,
+                    onHeightChanged = { /* no-op in detail screen */ },
+                    listState = arrivalsListState,
+                    stopName = stopName,
+                    stopId = uiState.stopId,
+                    shouldAnimateRefresh = uiState.shouldAnimateRefresh,
+                    onRefresh = { viewModel.refreshArrivals(force = true) },
+                    onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
+                )
+            }
         }
     }
 }
