@@ -258,6 +258,36 @@ fun MapComponent(
                     isEnabled = true
                 }
                 mapView.overlays.add(line)
+
+                // Add unfocused stop markers for each coordinate in the polyline, avoiding duplicates.
+                val existingStopMarkerPositions = mapView.overlays
+                    .filterIsInstance<Marker>()
+                    .map { it.position }
+                    .toSet()
+
+                poly.coordinates.forEach { (lat, lon) ->
+                    val newPoint = GeoPoint(lat, lon)
+                    // Avoid adding a marker if one is already at or very near this position
+                    if (existingStopMarkerPositions.none { it.distanceToAsDouble(newPoint) < 1.0 }) {
+                        val stopMarker = Marker(mapView).apply {
+                            position = newPoint
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            icon = ContextCompat.getDrawable(context, R.drawable.unfocused_bus_stop)
+                            // Find the corresponding stop to make it clickable
+                            val matchingStop = stops.find { it.latitude == lat && it.longitude == lon }
+                            if (matchingStop != null) {
+                                title = matchingStop.name
+                                snippet = "Stop ID: ${matchingStop.id}"
+                                relatedObject = matchingStop.id
+                                setOnMarkerClickListener { _, _ ->
+                                    onStopMarkerClick(matchingStop)
+                                    true
+                                }
+                            }
+                        }
+                        mapView.overlays.add(stopMarker)
+                    }
+                }
             }
 
             mapView.invalidate()
