@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
 import com.danieljm.delijn.domain.model.ArrivalInfo
+import kotlin.compareTo
+import kotlin.math.abs
 
 @Composable
 fun BusCard(arrival: ArrivalInfo) {
@@ -110,12 +112,12 @@ fun BusCard(arrival: ArrivalInfo) {
                     val delayText = when {
                         delayMinutes == 0 -> "on time"
                         delayMinutes > 0 -> "+ $delayMinutes"
-                        else -> "- $delayMinutes"
+                        else -> "- ${abs(delayMinutes)}"
                     }
                     val delayColor = when {
                         delayMinutes == 0 -> Color(0xFF74C4AB) // green
                         delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
-                        else -> Color(0xFF81D4FA) // baby blue
+                        else -> Color(0xFF62699C) // baby blue
                     }
                     Text(
                         text = delayText,
