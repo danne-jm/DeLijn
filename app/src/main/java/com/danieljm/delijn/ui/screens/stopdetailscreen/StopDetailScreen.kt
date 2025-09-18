@@ -65,17 +65,22 @@ fun StopDetailScreen(
             val toRemove = mv.overlays.filterIsInstance<Marker>().filter { it.title == "Stop marker" }
             toRemove.forEach { mv.overlays.remove(it) }
 
-            val gp = GeoPoint(lat, lon)
+            val markerPoint = GeoPoint(lat, lon)
             val marker = Marker(mv).apply {
-                position = gp
+                position = markerPoint
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 title = "Stop marker"
                 snippet = stopName
                 icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
             }
             mv.overlays.add(marker)
+
+            // Offset the map center so the marker appears higher on the screen
+            val offsetMeters = 250.0 // Move map center 250 meters south (so marker is higher)
+            val offsetLat = lat - (offsetMeters / 111_000.0) // 1 degree latitude ≈ 111km
+            val centerPoint = GeoPoint(offsetLat, lon)
             mv.controller.setZoom(18.0)
-            mv.controller.animateTo(gp)
+            mv.controller.animateTo(centerPoint)
             mv.invalidate()
         }
     }
