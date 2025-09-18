@@ -93,7 +93,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     }
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .background(lineBgColor) // Use dynamic color
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -108,7 +108,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .background(Color(0xFF424242))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -130,8 +130,8 @@ fun BusCard(arrival: ArrivalInfo) {
                 // Right side: Time and status
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        // The original file uses arrival.scheduledTime, but ArrivalInfo has 'time'. Using 'time' here.
-                        text = arrival.time,
+                        // Always show scheduled arrival time. Do NOT recalculate or override with real-time data.
+                        text = arrival.scheduledTime,
                         color = Color.White,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
