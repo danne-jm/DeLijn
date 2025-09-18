@@ -3,15 +3,19 @@ package com.danieljm.delijn.ui.screens.stopdetailscreen
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -116,64 +120,89 @@ fun StopDetailScreen(
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    // Use Scaffold to properly handle the top app bar and content layout
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars),
+        topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("stop") },
+                title = {
+                    Text(
+                        text = "Stop",
+                        color = Color.White,
+                    )
+                        },
                 navigationIcon = {
                     IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
-                        Icon(Lucide.ChevronLeft, contentDescription = "Back", tint = Color.Black)
+                        Icon(Lucide.ChevronLeft, contentDescription = "Back", tint = Color.White)
                     }
                 },
                 actions = {
                     IconButton(onClick = { /* TODO: Heart action */ }) {
-                        Icon(Lucide.Heart, contentDescription = "Favorite", tint = Color.Black)
+                        Icon(Lucide.Heart, contentDescription = "Favorite", tint = Color.White.copy(alpha = 0.8f))
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = Color(0xFF1D2124)
                 )
             )
-            Box(modifier = Modifier.weight(1f)) {
-                AndroidView(
-                    factory = { ctx ->
-                        MapView(ctx).apply {
-                            setTileSource(TileSourceFactory.MAPNIK)
-                            setMultiTouchControls(true)
-                            mapViewRef = this
-                        }
-                    },
-                    update = { mv -> mapViewRef = mv },
-                    modifier = Modifier.fillMaxSize()
-                )
+        }
+    ) { paddingValues ->
+        // Content area that automatically accounts for the top app bar
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Map fills the remaining space after accounting for top app bar
+            AndroidView(
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        mapViewRef = this
+                    }
+                },
+                update = { mv ->
+                    mapViewRef = mv
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
-                // Top overlay with stop title and errors
-                Column(
+            // Error overlay positioned at the top of the content area
+            uiState.error?.let { err ->
+                Surface(
                     modifier = Modifier
                         .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .align(Alignment.TopCenter),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    shadowElevation = 4.dp
                 ) {
-                    uiState.error?.let { err ->
-                        Text(text = "Error: $err", color = MaterialTheme.colorScheme.error)
-                    }
+                    Text(
+                        text = "Error: $err",
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(16.dp)
+                    )
                 }
-
-                BusArrivalsBottomSheet(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter),
-                    arrivals = uiState.allArrivals,
-                    isLoading = uiState.isLoading,
-                    onHeightChanged = { /* no-op in detail screen */ },
-                    listState = arrivalsListState,
-                    stopName = stopName,
-                    stopId = uiState.stopId,
-                    shouldAnimateRefresh = uiState.shouldAnimateRefresh,
-                    onRefresh = { viewModel.refreshArrivals(force = true) },
-                    onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
-                )
             }
+
+            // Bottom Sheet positioned at the bottom
+            BusArrivalsBottomSheet(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter),
+                arrivals = uiState.allArrivals,
+                isLoading = uiState.isLoading,
+                onHeightChanged = { /* no-op in detail screen */ },
+                listState = arrivalsListState,
+                stopName = stopName,
+                stopId = uiState.stopId,
+                shouldAnimateRefresh = uiState.shouldAnimateRefresh,
+                onRefresh = { viewModel.refreshArrivals(force = true) },
+                onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
+            )
         }
     }
 }
