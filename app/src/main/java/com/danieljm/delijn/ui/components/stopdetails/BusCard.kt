@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,10 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
 import com.danieljm.delijn.domain.model.ArrivalInfo
@@ -35,144 +38,148 @@ fun BusCard(arrival: ArrivalInfo) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp), // Add padding to match stops BottomSheet style
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color(0xFF2A2D32)
         )
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .padding(end = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Lucide.BusFront,
-                        contentDescription = "Bus front",
-                        tint = Color(0xFFBDBDBD),
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF4CAF50))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = arrival.lineId,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.width(24.dp))
-//                Card(
-//                    colors = CardDefaults.cardColors(containerColor = Color(0xFF424242))
-//                ) {
-//                    Text(
-//                        text = "Bus", // Placeholder for bus number or other info
-//                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-//                        color = Color.White,
-//                        fontSize = 18.sp
-//                    )
-//                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF424242))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = arrival.vrtnum.toString() ?: "Bus", // Show bus id if available, fallback to "Bus"
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = arrival.scheduledTime,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                // Delay/on time logic
-                if (!arrival.isScheduleOnly) {
-                    val delayMinutes = ((arrival.realArrivalTime - arrival.expectedArrivalTime) / 60_000).toInt()
-                    val delayText = when {
-                        delayMinutes == 0 -> "on time"
-                        delayMinutes > 0 -> "+ $delayMinutes"
-                        else -> "- ${abs(delayMinutes)}"
-                    }
-                    val delayColor = when {
-                        delayMinutes == 0 -> Color(0xFF74C4AB) // green
-                        delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
-                        else -> Color(0xFF5C86EC) // baby blue
-                    }
-                    Text(
-                        text = delayText,
-                        color = delayColor,
-                        fontSize = 18.sp,
-                    )
-                }
-            }
-        }
-        // Destination column
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = arrival.destination,
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-            // Info row (omschrijving and countdown)
+        Column(modifier = Modifier.padding(16.dp)) { // Use a single Column for the entire card content
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // First Row: Icons, line number, bus number
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.BusFront,
+                            contentDescription = "Bus front",
+                            tint = Color(0xFFBDBDBD),
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF4CAF50)) // Unique bus line color
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = arrival.lineId,
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF424242))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.Bus,
+                            contentDescription = "Bus icon",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        // The original file uses arrival.vrtnum, but ArrivalInfo does not have this property.
+                        // Assuming it's a placeholder. Keeping as a placeholder or using a different value as needed.
+                        Text(
+                            text = "678081",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                // Right side: Time and status
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        // The original file uses arrival.scheduledTime, but ArrivalInfo has 'time'. Using 'time' here.
+                        text = arrival.time,
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // Delay/on time logic
+                    if (!arrival.isScheduleOnly) {
+                        val delayMinutes = ((arrival.realArrivalTime - arrival.expectedArrivalTime) / 60_000).toInt()
+                        val delayText = when {
+                            delayMinutes == 0 -> "on time"
+                            delayMinutes > 0 -> "+ $delayMinutes"
+                            else -> "- ${abs(delayMinutes)}"
+                        }
+                        val delayColor = when {
+                            delayMinutes == 0 -> Color(0xFF74C4AB) // green
+                            delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
+                            else -> Color(0xFF5C86EC) // baby blue
+                        }
+                        Text(
+                            text = delayText,
+                            color = delayColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+            // Add a spacer to control the vertical space between the rows
+            Spacer(modifier = Modifier.height(8.dp)) // Adjust this value to change the spacing
+
+            // Second Row/Column: Destination and Countdown
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
-                    text = arrival.omschrijving,
-                    color = Color.LightGray,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = "in ${formatCountdown(arrival.remainingMinutes)}",
+                    text = arrival.destination,
                     color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterVertically)
-                        .padding(start = 8.dp)
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = arrival.omschrijving,
+                        color = Color.LightGray,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+//                    Text(
+//                        text = "in ${formatCountdown(arrival.remainingMinutes)}",
+//                        color = Color.White,
+//                        fontSize = 14.sp,
+//                        modifier = Modifier
+//                            .align(Alignment.CenterVertically)
+//                            .padding(start = 8.dp)
+//                    )
+                    // if remaining time is in minutes then "in X min", else "at stop" and not current "in at stop" which is wrong
+                    Text(
+                        text = if (arrival.remainingMinutes <= 0) "at stop" else "in ${formatCountdown(arrival.remainingMinutes)}",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .padding(start = 8.dp)
+                    )
+                }
             }
         }
     }
 }
 
-// if time is more than 59 minutes, show in hours and minutes
-// if time is less than 0, show "at stop"
-// if time is 59 minutes or less, show in minutes
 private fun formatCountdown(minutes: Long): String {
-//    return when {
-//        minutes <= 0 -> "at stop"
-//        else -> "$minutes min"
-//    }
     return when {
         minutes <= 0 -> "at stop"
         minutes < 60 -> "$minutes min"

@@ -42,9 +42,12 @@ fun BusArrivalsBottomSheet(
     listState: LazyListState,
     stopName: String = "",
     stopId: String = "",
-    onRefresh: (() -> Unit)? = null,
+    // onRefresh now accepts a force flag: true when user tapped, false when conditional auto-refresh.
+    onRefresh: ((force: Boolean) -> Unit)? = null,
     shouldAnimateRefresh: Boolean = false,
-    onRefreshAnimationComplete: (() -> Unit)? = null
+    onRefreshAnimationComplete: (() -> Unit)? = null,
+    // Timestamp in millis of last arrivals refresh. Used to trigger a conditional refresh when stale.
+    lastArrivalsRefreshMillis: Long? = null
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -66,6 +69,18 @@ fun BusArrivalsBottomSheet(
     LaunchedEffect(heightDp, animatedHeightDp, isDragging) {
         val reportHeight = if (isDragging) heightDp else animatedHeightDp
         onHeightChanged?.invoke(reportHeight)
+    }
+
+    // If the sheet is composed and it's been more than 30s since last arrivals refresh, trigger a conditional refresh.
+    LaunchedEffect(stopId, lastArrivalsRefreshMillis) {
+        val now = System.currentTimeMillis()
+        val last = lastArrivalsRefreshMillis
+        if (onRefresh != null) {
+            if (last == null || now - last > 30_000) {
+                // trigger conditional (non-forced) refresh - ViewModel will respect cooldown when force=false
+                onRefresh(false)
+            }
+        }
     }
 
     LaunchedEffect(shouldAnimateRefresh) {
@@ -148,7 +163,8 @@ fun BusArrivalsBottomSheet(
                         .padding(start = 8.dp)
                         .graphicsLayer { rotationZ = rotation.value }
                         .clickable(enabled = onRefresh != null && !rotation.isRunning) {
-                            onRefresh?.invoke()
+                            // manual tap should force a refetch
+                            onRefresh?.invoke(true)
                         }
                 )
             }

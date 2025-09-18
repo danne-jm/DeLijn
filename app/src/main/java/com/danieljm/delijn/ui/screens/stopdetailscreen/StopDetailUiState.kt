@@ -9,5 +9,9 @@ data class StopDetailUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val servedLines: List<ServedLine> = emptyList(),
-    val allArrivals: List<ArrivalInfo> = emptyList()
+    val allArrivals: List<ArrivalInfo> = emptyList(),
+    // Controls the refresh animation for the bottom sheet refresh icon
+    val shouldAnimateRefresh: Boolean = false,
+    // Timestamp in millis of the last arrivals refresh (automatic or manual)
+    val lastArrivalsRefreshMillis: Long? = null
 )

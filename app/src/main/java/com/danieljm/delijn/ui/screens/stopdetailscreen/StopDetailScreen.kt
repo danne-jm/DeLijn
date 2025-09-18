@@ -78,7 +78,10 @@ fun StopDetailScreen(
                 onHeightChanged = { height -> bottomSheetHeight = height },
                 listState = arrivalsListState,
                 stopName = stopName,
-                stopId = uiState.stopId
+                stopId = uiState.stopId,
+                shouldAnimateRefresh = uiState.shouldAnimateRefresh,
+                onRefresh = { viewModel.refreshArrivals(force = true) },
+                onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
             )
         }
     }

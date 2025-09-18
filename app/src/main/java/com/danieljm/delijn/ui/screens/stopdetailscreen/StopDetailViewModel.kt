@@ -60,7 +60,8 @@ class StopDetailViewModel(
                         isLoading = false,
                         stopName = stopName,
                         servedLines = servedLines,
-                        allArrivals = arrivalsToShow
+                        allArrivals = arrivalsToShow,
+                        lastArrivalsRefreshMillis = System.currentTimeMillis()
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -69,5 +70,89 @@ class StopDetailViewModel(
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
             }
         }
+    }
+
+    // Manual or programmatic arrivals refresh. If force==true always fetch, otherwise avoid excessive fetches elsewhere.
+    fun refreshArrivals(force: Boolean = false) {
+        val currentStopId = _uiState.value.stopId
+        if (currentStopId.isEmpty()) return
+
+        // Set animation flag so the UI can animate the refresh icon
+        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+
+            try {
+                var servedLines = _uiState.value.servedLines
+                var entiteitnummer: String? = null
+                var halteNummer: String? = null
+
+                if (servedLines.isEmpty()) {
+                    // Try to fetch stop details and directions if not already available
+                    val stop = getStopDetailsUseCase(currentStopId)
+                    if (stop != null) {
+                        entiteitnummer = stop.entiteitnummer
+                        halteNummer = stop.halteNummer
+                        val directionsResponse = getLineDirectionsForStopUseCase(stop.entiteitnummer, stop.halteNummer)
+                        servedLines = directionsResponse.lijnrichtingen.map { line ->
+                            ServedLine(
+                                lineId = line.lijnnummer,
+                                lineName = line.lijnnummer,
+                                omschrijving = line.omschrijving,
+                                asFromTo = line.omschrijving
+                            )
+                        }
+                    }
+                }
+
+                // If the entiteit/halte numbers weren't set above, derive them from previously loaded data if possible
+                if (entiteitnummer == null || halteNummer == null) {
+                    // Attempt to derive from stop details again
+                    val stop = getStopDetailsUseCase(currentStopId)
+                    if (stop != null) {
+                        entiteitnummer = stop.entiteitnummer
+                        halteNummer = stop.halteNummer
+                    }
+                }
+
+                if (entiteitnummer == null || halteNummer == null) {
+                    Log.w("StopDetailViewModel", "Unable to determine stop identifiers for refresh: $currentStopId")
+                    _uiState.value = _uiState.value.copy(isLoading = false, shouldAnimateRefresh = false)
+                    return@launch
+                }
+
+                // Fetch live arrivals
+                val allArrivals = try {
+                    getRealTimeArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
+                } catch (e: Exception) {
+                    Log.e("StopDetailViewModel", "Error fetching real-time arrivals", e)
+                    emptyList()
+                }
+
+                val arrivalsToShow = if (allArrivals.isEmpty()) {
+                    try {
+                        getScheduledArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
+                    } catch (e: Exception) {
+                        Log.e("StopDetailViewModel", "Error fetching scheduled arrivals", e)
+                        emptyList()
+                    }
+                } else allArrivals
+
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    allArrivals = arrivalsToShow,
+                    servedLines = servedLines,
+                    lastArrivalsRefreshMillis = System.currentTimeMillis()
+                )
+            } catch (e: Exception) {
+                Log.e("StopDetailViewModel", "Error during arrivals refresh", e)
+                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+            }
+        }
+    }
+
+    fun onRefreshAnimationComplete() {
+        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
     }
 }
