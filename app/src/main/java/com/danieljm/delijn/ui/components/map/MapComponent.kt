@@ -1,6 +1,7 @@
 package com.danieljm.delijn.ui.components.map
 
 import android.content.Context
+import android.graphics.Color
 import android.location.Location
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -27,6 +28,16 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import android.graphics.Color as AndroidColor
+
+// Map polyline data used to draw line directions (routes)
+data class MapPolyline(
+    val id: String,
+    val coordinates: List<Pair<Double, Double>>,
+    val colorHex: String? = null,
+    val width: Float = 8f
+)
 
 data class MapState(
     val centerLatitude: Double? = null,
@@ -70,6 +81,7 @@ fun MapComponent(
     userLocation: Location? = null,
     stops: List<Stop> = emptyList(),
     customMarkers: List<CustomMarker> = emptyList(),
+    polylines: List<MapPolyline> = emptyList(),
     mapState: MapState = MapState(),
     onMapStateChanged: (MapState) -> Unit = {},
     onStopMarkerClick: (Stop) -> Unit = {},
@@ -179,12 +191,12 @@ fun MapComponent(
         }
     }
 
-    // Update stop markers and custom markers
-    LaunchedEffect(stops, customMarkers) {
+    // Update stop markers, custom markers and polylines
+    LaunchedEffect(stops, customMarkers, polylines) {
         mapViewRef?.let { mapView ->
-            // Remove previous markers (keep "You are here" marker)
+            // Remove previous overlays except "You are here"
             val overlaysToRemove = mapView.overlays.filter {
-                it is Marker && it.title != "You are here"
+                (it is Marker && it.title != "You are here") || it is Polyline
             }
             overlaysToRemove.forEach { mapView.overlays.remove(it) }
 
@@ -230,6 +242,24 @@ fun MapComponent(
                 }
                 mapView.overlays.add(marker)
             }
+
+            // Add polylines (routes)
+            polylines.forEach { poly ->
+                val pts = poly.coordinates.map { (lat, lon) -> GeoPoint(lat, lon) }
+                val line = Polyline(mapView).apply {
+                    setPoints(pts)
+                    val col = try {
+                        poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
+                    } catch (e: Exception) {
+                        AndroidColor.parseColor("#2196F3")
+                    }
+                    color = col
+                    width = poly.width
+                    isEnabled = true
+                }
+                mapView.overlays.add(line)
+            }
+
             mapView.invalidate()
         }
     }

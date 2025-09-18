@@ -14,4 +14,5 @@ interface StopRepository {
     suspend fun getLineDirectionsForStop(entiteitnummer: String, haltenummer: String): LineDirectionsResponse
     suspend fun searchLineDirections(zoekArgument: String, maxAantalHits: Int = 10): LineDirectionsSearchResponse
     suspend fun getLineDirectionDetail(entiteitnummer: String, lijnnummer: String, richting: String): com.danieljm.delijn.domain.model.LineDirectionSearch?
+    suspend fun getLineDirectionStops(entiteitnummer: String, lijnnummer: String, richting: String): com.danieljm.delijn.domain.model.LineDirectionStopsResponse
 }

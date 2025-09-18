@@ -37,6 +37,7 @@ import com.danieljm.delijn.domain.model.Stop
 import com.danieljm.delijn.ui.components.map.CustomMarker
 import com.danieljm.delijn.ui.components.map.MapComponent
 import com.danieljm.delijn.ui.components.map.MapState
+import com.danieljm.delijn.ui.components.map.MapPolyline
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Heart
@@ -177,6 +178,13 @@ fun StopDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 stops = listOfNotNull(currentStop), // Show the current stop as a marker
                 customMarkers = busMarkers, // Show bus positions
+                polylines = uiState.polylines.map { lp ->
+                    MapPolyline(
+                        id = lp.id,
+                        coordinates = lp.coordinates,
+                        colorHex = lp.colorHex
+                    )
+                },
                 mapState = mapState,
                 onMapStateChanged = { newState -> mapState = newState },
                 centerOnStop = currentStop,

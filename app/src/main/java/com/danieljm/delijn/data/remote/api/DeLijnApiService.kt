@@ -2,6 +2,7 @@ package com.danieljm.delijn.data.remote.api
 
 import com.danieljm.delijn.data.remote.dto.BusDto
 import com.danieljm.delijn.data.remote.dto.LineDirectionDetailDto
+import com.danieljm.delijn.data.remote.dto.LineDirectionStopsResponseDto
 import com.danieljm.delijn.data.remote.dto.LineDirectionsResponseDto
 import com.danieljm.delijn.data.remote.dto.LineDirectionsSearchResponseDto
 import com.danieljm.delijn.data.remote.dto.NearbyStopsResponseDto
@@ -66,11 +67,19 @@ interface DeLijnApiService {
         @Query("maxAantalHits") maxAantalHits: Int = 10
     ): LineDirectionsSearchResponseDto
 
-    // Fetch a specific lijnrichting detail (contains kleur and public line number)
+    // Fetch a specific lijnrichting detail (contains kleuren and public line number)
     @GET("lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}")
     suspend fun getLineDirectionDetail(
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("lijnnummer") lijnnummer: String,
         @Path("richting") richting: String
     ): LineDirectionDetailDto
+
+    // Fetch stops for a specific line direction so the full route can be drawn on a map
+    @GET("lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}/haltes")
+    suspend fun getLineDirectionStops(
+        @Path("entiteitnummer") entiteitnummer: String,
+        @Path("lijnnummer") lijnnummer: String,
+        @Path("richting") richting: String
+    ): LineDirectionStopsResponseDto
 }

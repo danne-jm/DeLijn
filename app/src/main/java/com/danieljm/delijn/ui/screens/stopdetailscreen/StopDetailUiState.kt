@@ -28,5 +28,7 @@ data class StopDetailUiState(
     val busLatitude: Double? = null,
     val busLongitude: Double? = null,
     val busVehicleId: String? = null,
-    val busPositions: List<BusPosition> = emptyList()
+    val busPositions: List<BusPosition> = emptyList(),
+    // Polylines representing line directions to draw on the map
+    val polylines: List<com.danieljm.delijn.domain.model.LinePolyline> = emptyList()
 )

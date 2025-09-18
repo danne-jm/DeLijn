@@ -88,6 +88,11 @@ class StopRepositoryImpl(
         return response.toDomain()
     }
 
+    override suspend fun getLineDirectionStops(entiteitnummer: String, lijnnummer: String, richting: String): com.danieljm.delijn.domain.model.LineDirectionStopsResponse {
+        val dto = api.getLineDirectionStops(entiteitnummer, lijnnummer, richting)
+        return dto.toDomain()
+    }
+
     override suspend fun getLineDirectionDetail(entiteitnummer: String, lijnnummer: String, richting: String): com.danieljm.delijn.domain.model.LineDirectionSearch? {
         return try {
             val dto = api.getLineDirectionDetail(entiteitnummer, lijnnummer, richting)

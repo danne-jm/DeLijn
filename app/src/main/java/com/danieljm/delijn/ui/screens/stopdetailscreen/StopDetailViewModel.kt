@@ -10,6 +10,8 @@ import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetScheduledArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
+import com.danieljm.delijn.domain.usecase.GetLineDirectionStopsUseCase
+import com.danieljm.delijn.domain.model.LinePolyline
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +27,8 @@ class StopDetailViewModel(
     private val getRealTimeArrivalsUseCase: GetRealTimeArrivalsUseCase,
     private val getScheduledArrivalsUseCase: GetScheduledArrivalsUseCase,
     private val getLineDirectionDetailUseCase: GetLineDirectionDetailUseCase,
-    private val getLineDirectionsSearchUseCase: GetLineDirectionsSearchUseCase
+    private val getLineDirectionsSearchUseCase: GetLineDirectionsSearchUseCase,
+    private val getLineDirectionStopsUseCase: GetLineDirectionStopsUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StopDetailUiState())
     val uiState: StateFlow<StopDetailUiState> = _uiState
@@ -122,6 +125,9 @@ class StopDetailViewModel(
                     // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
                     val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
 
+                    // Build polylines for the enriched lines using cached search results
+                    val polylines = try { buildPolylinesFromCache() } catch (e: Exception) { emptyList() }
+
                     val busPositions = fetchAllBusPositions(enriched)
 
                     _uiState.value = _uiState.value.copy(
@@ -132,7 +138,8 @@ class StopDetailViewModel(
                         lastArrivalsRefreshMillis = System.currentTimeMillis(),
                         stopLatitude = stop.latitude,
                         stopLongitude = stop.longitude,
-                        busPositions = busPositions
+                        busPositions = busPositions,
+                        polylines = polylines
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -219,6 +226,9 @@ class StopDetailViewModel(
                 // Enrich arrivals
                 val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
 
+                // Build polylines (may reuse cache). If force refresh passed, cache was cleared earlier in enrich.
+                val polylines = try { buildPolylinesFromCache() } catch (e: Exception) { emptyList() }
+
                 val busPositions = fetchAllBusPositions(enriched)
 
                 _uiState.value = _uiState.value.copy(
@@ -226,7 +236,8 @@ class StopDetailViewModel(
                     allArrivals = enriched,
                     servedLines = servedLines,
                     lastArrivalsRefreshMillis = System.currentTimeMillis(),
-                    busPositions = busPositions
+                    busPositions = busPositions,
+                    polylines = polylines
                 )
             } catch (e: Exception) {
                 Log.e("StopDetailViewModel", "Error during arrivals refresh", e)
@@ -289,5 +300,29 @@ class StopDetailViewModel(
                 )
             }
         }
+    }
+
+    private suspend fun buildPolylinesFromCache(): List<LinePolyline> {
+        val polylines = mutableListOf<LinePolyline>()
+        val unique = mutableSetOf<String>()
+        for ((_, candidate) in lineDetailCache) {
+            if (candidate == null) continue
+            val ent = candidate.entiteitnummer ?: continue
+            val lijn = candidate.lijnnummer ?: continue
+            val richting = candidate.richting ?: continue
+            val key = "$ent|$lijn|$richting"
+            if (unique.contains(key)) continue
+            unique.add(key)
+            try {
+                val resp = getLineDirectionStopsUseCase(ent, lijn, richting)
+                val coords = resp.haltes.map { it.latitude to it.longitude }
+                if (coords.isNotEmpty()) {
+                    polylines.add(LinePolyline(id = key, coordinates = coords, colorHex = candidate.kleurAchterGrond))
+                }
+            } catch (e: Exception) {
+                Log.w("StopDetailViewModel", "Failed to fetch haltes for $key", e)
+            }
+        }
+        return polylines
     }
 }
