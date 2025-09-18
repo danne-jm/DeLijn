@@ -1,0 +1,251 @@
+package com.danieljm.delijn.ui.components.map
+
+import android.content.Context
+import android.location.Location
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import com.danieljm.delijn.R
+import com.danieljm.delijn.domain.model.Stop
+import kotlinx.coroutines.launch
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+
+data class MapState(
+    val centerLatitude: Double? = null,
+    val centerLongitude: Double? = null,
+    val zoom: Double = 15.0
+) {
+    companion object {
+        val Saver = androidx.compose.runtime.saveable.Saver<MapState, List<Any>>(
+            save = { mapState ->
+                listOf(
+                    mapState.centerLatitude ?: "null",
+                    mapState.centerLongitude ?: "null",
+                    mapState.zoom
+                )
+            },
+            restore = { list ->
+                MapState(
+                    centerLatitude = if (list[0] == "null") null else list[0] as Double,
+                    centerLongitude = if (list[1] == "null") null else list[1] as Double,
+                    zoom = list[2] as Double
+                )
+            }
+        )
+    }
+}
+
+@Composable
+fun MapComponent(
+    modifier: Modifier = Modifier,
+    userLocation: Location? = null,
+    stops: List<Stop> = emptyList(),
+    mapState: MapState = MapState(),
+    onMapStateChanged: (MapState) -> Unit = {},
+    onStopMarkerClick: (Stop) -> Unit = {},
+    animateToLocation: Location? = null,
+    animateToStop: Stop? = null,
+    showUserLocationMarker: Boolean = true
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
+
+    // Initialize osmdroid configuration
+    LaunchedEffect(Unit) {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+    }
+
+    // Center map on initial state or animate to location on first launch
+    LaunchedEffect(isFirstLaunch, mapState, userLocation) {
+        if (isFirstLaunch && mapViewRef != null) {
+            if (mapState.centerLatitude != null && mapState.centerLongitude != null) {
+                mapViewRef!!.controller.setZoom(mapState.zoom)
+                mapViewRef!!.controller.animateTo(GeoPoint(mapState.centerLatitude, mapState.centerLongitude))
+            } else if (userLocation != null) {
+                moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+            }
+            isFirstLaunch = false
+        }
+    }
+
+    // Animate to specific location when requested
+    LaunchedEffect(animateToLocation) {
+        if (animateToLocation != null) {
+            moveMapToLocation(mapViewRef, animateToLocation, isInitialMove = true)
+        }
+    }
+
+    // Animate to specific stop when requested
+    LaunchedEffect(animateToStop) {
+        if (animateToStop != null && mapViewRef != null) {
+            val geoPoint = GeoPoint(animateToStop.latitude, animateToStop.longitude)
+            mapViewRef!!.controller.animateTo(geoPoint)
+        }
+    }
+
+    // Animate the user's location marker smoothly
+    LaunchedEffect(userLocation, mapViewRef, showUserLocationMarker) {
+        if (userLocation != null && mapViewRef != null && showUserLocationMarker) {
+            val oldMarker = mapViewRef!!.overlays.filterIsInstance<Marker>().find { it.title == "You are here" }
+            val newGeoPoint = GeoPoint(userLocation.latitude, userLocation.longitude)
+
+            if (oldMarker == null) {
+                // Initial placement of the marker
+                val marker = Marker(mapViewRef).apply {
+                    position = newGeoPoint
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "You are here"
+                    icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_dot)
+                }
+                mapViewRef!!.overlays.add(marker)
+                mapViewRef!!.invalidate()
+            } else {
+                // Animate the existing marker to the new position
+                val startPoint = oldMarker.position
+                val endPoint = newGeoPoint
+
+                val latAnimatable = Animatable(startPoint.latitude.toFloat())
+                val lonAnimatable = Animatable(startPoint.longitude.toFloat())
+
+                coroutineScope.launch {
+                    launch {
+                        latAnimatable.animateTo(endPoint.latitude.toFloat(), animationSpec = tween(1000)) {
+                            oldMarker.position.latitude = value.toDouble()
+                            mapViewRef?.invalidate()
+                        }
+                    }
+                    launch {
+                        lonAnimatable.animateTo(endPoint.longitude.toFloat(), animationSpec = tween(1000)) {
+                            oldMarker.position.longitude = value.toDouble()
+                            mapViewRef?.invalidate()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update stop markers
+    LaunchedEffect(stops) {
+        mapViewRef?.let { mapView ->
+            // Remove previous stop markers (keep "You are here" marker)
+            val overlaysToRemove = mapView.overlays.filter { it is Marker && it.title != "You are here" }
+            overlaysToRemove.forEach { mapView.overlays.remove(it) }
+
+            // Add markers for each stop
+            stops.forEach { stop ->
+                val gp = GeoPoint(stop.latitude, stop.longitude)
+                val marker = Marker(mapView).apply {
+                    position = gp
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = stop.name
+                    snippet = "Stop ID: ${stop.id}"
+                    icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
+                    relatedObject = stop.id
+                    setOnMarkerClickListener { _, _ ->
+                        onStopMarkerClick(stop)
+                        true
+                    }
+                }
+                mapView.overlays.add(marker)
+            }
+            mapView.invalidate()
+        }
+    }
+
+    // Listen for map state changes
+    DisposableEffect(mapViewRef) {
+        val mapView = mapViewRef
+        if (mapView != null) {
+            val listener = object : org.osmdroid.events.MapListener {
+                override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                    val center = mapView.mapCenter
+                    onMapStateChanged(
+                        MapState(
+                            centerLatitude = center.latitude,
+                            centerLongitude = center.longitude,
+                            zoom = mapView.zoomLevelDouble
+                        )
+                    )
+                    return true
+                }
+                override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                    val center = mapView.mapCenter
+                    onMapStateChanged(
+                        MapState(
+                            centerLatitude = center.latitude,
+                            centerLongitude = center.longitude,
+                            zoom = mapView.zoomLevelDouble
+                        )
+                    )
+                    return true
+                }
+            }
+            mapView.addMapListener(listener)
+            onDispose { mapView.removeMapListener(listener) }
+        } else {
+            onDispose { }
+        }
+    }
+
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { ctx ->
+                MapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    controller.setZoom(mapState.zoom)
+                    if (mapState.centerLatitude != null && mapState.centerLongitude != null) {
+                        controller.setCenter(GeoPoint(mapState.centerLatitude, mapState.centerLongitude))
+                    }
+                    mapViewRef = this
+                }
+            },
+            update = { mv ->
+                mapViewRef = mv
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+private var lastCenteredLocation: Pair<Double, Double>? = null
+
+private fun moveMapToLocation(mapView: MapView?, location: Location?, isInitialMove: Boolean = false) {
+    if (mapView == null || location == null) return
+
+    val lat = location.latitude
+    val lon = location.longitude
+
+    if (!isInitialMove && lastCenteredLocation?.first == lat && lastCenteredLocation?.second == lon) {
+        return
+    }
+
+    lastCenteredLocation = lat to lon
+    val geo = GeoPoint(lat, lon)
+    mapView.controller.animateTo(geo)
+    if (isInitialMove) {
+        mapView.controller.setZoom(18.0)
+    }
+}

@@ -1,14 +1,11 @@
 package com.danieljm.delijn.ui.screens.stops
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,13 +22,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -41,21 +36,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavHostController
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
-import com.danieljm.delijn.R
+import com.danieljm.delijn.domain.model.Stop
+import com.danieljm.delijn.ui.components.map.MapComponent
+import com.danieljm.delijn.ui.components.map.MapState
 import com.danieljm.delijn.ui.components.stops.BottomSheet
-import com.danieljm.delijn.ui.navigation.Screen
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import androidx.navigation.NavHostController
 
 @Composable
 fun StopsScreen(
@@ -80,26 +69,21 @@ fun StopsScreen(
         }
     )
 
-    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     val DpSaver = Saver<Dp, Float>(
         save = { it.value },
         restore = { it.dp }
     )
     var bottomSheetHeight by rememberSaveable(stateSaver = DpSaver) { mutableStateOf(160.dp) }
-    var selectedStopId by remember { mutableStateOf<String?>(null) }
     var pendingCenterOnLocation by remember { mutableStateOf(false) }
-    var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
-    val coroutineScope = rememberCoroutineScope()
 
-    // Persistent map center and zoom state
-    var savedMapCenterList by rememberSaveable { mutableStateOf<List<Double>?>(null) }
-    val savedMapCenter: GeoPoint? = savedMapCenterList?.let { GeoPoint(it[0], it[1]) }
-    var savedMapZoom by rememberSaveable { mutableStateOf(15.0) }
-
-    // Initialize osmdroid configuration
-    LaunchedEffect(Unit) {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+    // Map state management
+    var mapState by rememberSaveable(stateSaver = MapState.Saver) {
+        mutableStateOf(MapState(zoom = 15.0))
     }
+    var animateToLocationTrigger by remember { mutableStateOf<Location?>(null) }
+    var animateToStopTrigger by remember { mutableStateOf<Stop?>(null) }
+
+    val stopsListState = rememberLazyListState()
 
     // Request permission or location once when the screen is first composed
     LaunchedEffect(hasLocationPermission) {
@@ -110,141 +94,11 @@ fun StopsScreen(
         }
     }
 
-    // Center map on saved position or user location only on first launch
-    LaunchedEffect(isFirstLaunch, userLocation) {
-        if (isFirstLaunch) {
-            if (savedMapCenter != null && mapViewRef != null) {
-                mapViewRef!!.controller.setZoom(savedMapZoom)
-                mapViewRef!!.controller.animateTo(savedMapCenter)
-            } else if (userLocation != null) {
-                moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
-            }
-            isFirstLaunch = false
-        }
-    }
-
+    // Handle pending center on location
     LaunchedEffect(pendingCenterOnLocation, userLocation) {
         if (pendingCenterOnLocation && userLocation != null) {
-            moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
+            animateToLocationTrigger = userLocation
             pendingCenterOnLocation = false
-        }
-    }
-
-    // Animate the user's location marker smoothly
-    LaunchedEffect(userLocation, mapViewRef) {
-        if (userLocation != null && mapViewRef != null) {
-            val oldMarker = mapViewRef!!.overlays.filterIsInstance<Marker>().find { it.title == "You are here" }
-            val newGeoPoint = GeoPoint(userLocation.latitude, userLocation.longitude)
-
-            if (oldMarker == null) {
-                // Initial placement of the marker
-                val marker = Marker(mapViewRef).apply {
-                    position = newGeoPoint
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = "You are here"
-                    icon = ContextCompat.getDrawable(mapViewRef!!.context, R.drawable.user_live_dot)
-                }
-                mapViewRef!!.overlays.add(marker)
-                mapViewRef!!.invalidate()
-            } else {
-                // Animate the existing marker to the new position
-                val startPoint = oldMarker.position
-                val endPoint = newGeoPoint
-
-                val latAnimatable = Animatable(startPoint.latitude.toFloat())
-                val lonAnimatable = Animatable(startPoint.longitude.toFloat())
-
-                coroutineScope.launch {
-                    launch {
-                        latAnimatable.animateTo(endPoint.latitude.toFloat(), animationSpec = tween(1000)) {
-                            oldMarker.position.latitude = value.toDouble()
-                            mapViewRef?.invalidate()
-                        }
-                    }
-                    launch {
-                        lonAnimatable.animateTo(endPoint.longitude.toFloat(), animationSpec = tween(1000)) {
-                            oldMarker.position.longitude = value.toDouble()
-                            mapViewRef?.invalidate()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(uiState.nearbyStops) {
-        mapViewRef?.let { mapView ->
-            // Remove previous stop markers (keep "You are here" marker)
-            val overlaysToRemove = mapView.overlays.filter { it is Marker && it.title != "You are here" }
-            overlaysToRemove.forEach { mapView.overlays.remove(it) }
-
-            // Add markers for each nearby stop
-            uiState.nearbyStops.forEach { stop ->
-                val gp = GeoPoint(stop.latitude, stop.longitude)
-                val marker = Marker(mapView).apply {
-                    position = gp
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = stop.name
-                    snippet = "Stop ID: ${stop.id}"
-                    icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
-                    relatedObject = stop.id
-                    setOnMarkerClickListener { _, _ ->
-                        // Save current map center/zoom before navigating
-                        val center = mapView.mapCenter
-                        savedMapCenterList = listOf(center.latitude, center.longitude)
-                        savedMapZoom = mapView.zoomLevelDouble
-                        navController.navigate("stopDetail/${stop.id}/${Uri.encode(stop.name)}")
-                        true
-                    }
-                }
-                mapView.overlays.add(marker)
-            }
-            mapView.invalidate()
-        }
-    }
-
-    // Update marker snippet when line directions are loaded
-    LaunchedEffect(uiState.selectedStopLineDirections, selectedStopId) {
-        if (uiState.selectedStopLineDirections.isNotEmpty() && selectedStopId != null) {
-            mapViewRef?.let { mapView ->
-                mapView.overlays.filterIsInstance<Marker>()
-                    .find { marker ->
-                        marker.relatedObject == selectedStopId
-                    }?.let { marker ->
-                        val stop = uiState.nearbyStops.find { it.id == selectedStopId }
-                        if (stop != null) {
-                            marker.snippet = stop.id
-                            marker.showInfoWindow()
-                        }
-                    }
-                mapView.invalidate()
-            }
-        }
-    }
-
-    var mapZoom by rememberSaveable { mutableStateOf(15.0) }
-    val stopsListState = rememberLazyListState() // Correctly using rememberLazyListState
-
-    DisposableEffect(mapViewRef) {
-        val mapView = mapViewRef
-        if (mapView != null) {
-            val listener = object : org.osmdroid.events.MapListener {
-                override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
-                    // Save map center on scroll
-                    val center = mapView.mapCenter
-                    savedMapCenterList = listOf(center.latitude, center.longitude)
-                    return true
-                }
-                override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
-                    mapZoom = mapView.zoomLevelDouble
-                    savedMapZoom = mapView.zoomLevelDouble
-                    return true
-                }
-            }
-            mapView.addMapListener(listener)
-            onDispose { mapView.removeMapListener(listener) }
-        } else {
-            onDispose { }
         }
     }
 
@@ -258,23 +112,33 @@ fun StopsScreen(
                 .fillMaxWidth()
                 .weight(1f)) {
 
-                AndroidView(
-                    factory = { ctx ->
-                        MapView(ctx).apply {
-                            setTileSource(TileSourceFactory.MAPNIK)
-                            setMultiTouchControls(true)
-                            controller.setZoom(savedMapZoom)
-                            if (savedMapCenter != null) {
-                                controller.setCenter(savedMapCenter)
-                            }
-                            mapViewRef = this
-                        }
+                // Use the new reusable MapComponent
+                MapComponent(
+                    modifier = Modifier.fillMaxSize(),
+                    userLocation = userLocation,
+                    stops = uiState.nearbyStops,
+                    mapState = mapState,
+                    onMapStateChanged = { newState -> mapState = newState },
+                    onStopMarkerClick = { stop ->
+                        navController.navigate("stopDetail/${stop.id}/${Uri.encode(stop.name)}")
                     },
-                    update = { mv ->
-                        mapViewRef = mv
-                    },
-                    modifier = Modifier.fillMaxSize()
+                    animateToLocation = animateToLocationTrigger,
+                    animateToStop = animateToStopTrigger,
+                    showUserLocationMarker = true
                 )
+
+                // Clear animation triggers after they've been processed
+                LaunchedEffect(animateToLocationTrigger) {
+                    if (animateToLocationTrigger != null) {
+                        animateToLocationTrigger = null
+                    }
+                }
+
+                LaunchedEffect(animateToStopTrigger) {
+                    if (animateToStopTrigger != null) {
+                        animateToStopTrigger = null
+                    }
+                }
 
                 // Show loading indicator
                 if (uiState.isLoading) {
@@ -312,10 +176,12 @@ fun StopsScreen(
                     onClick = {
                         if (hasLocationPermission) {
                             if (userLocation != null) {
-                                moveMapToLocation(mapViewRef, userLocation, isInitialMove = true)
-                                // Save new center/zoom
-                                savedMapCenterList = listOf(userLocation.latitude, userLocation.longitude)
-                                savedMapZoom = 18.0
+                                animateToLocationTrigger = userLocation
+                                mapState = mapState.copy(
+                                    centerLatitude = userLocation.latitude,
+                                    centerLongitude = userLocation.longitude,
+                                    zoom = 18.0
+                                )
                             } else {
                                 viewModel.startLocationUpdates(context)
                                 pendingCenterOnLocation = true
@@ -344,15 +210,16 @@ fun StopsScreen(
                     userLon = userLocation?.longitude,
                     onHeightChanged = { height -> bottomSheetHeight = height },
                     onStopClick = { stop ->
-                        mapViewRef?.controller?.animateTo(GeoPoint(stop.latitude, stop.longitude))
-                        // Save new center
-                        savedMapCenterList = listOf(stop.latitude, stop.longitude)
+                        animateToStopTrigger = stop
+                        mapState = mapState.copy(
+                            centerLatitude = stop.latitude,
+                            centerLongitude = stop.longitude
+                        )
                     },
                     isLoading = uiState.isLoading,
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
                     onRefresh = {
                         if(hasLocationPermission) {
-                            // Use the new force refresh method instead
                             viewModel.forceLocationUpdateAndRefresh(context)
                         } else {
                             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -365,28 +232,5 @@ fun StopsScreen(
                 )
             }
         }
-    }
-
-    // Remove always center map on user location as soon as it is available
-    // Only center if explicitly requested (FAB or first launch)
-}
-
-private var lastCenteredLocation: Pair<Double, Double>? = null
-
-private fun moveMapToLocation(mapView: MapView?, location: Location?, isInitialMove: Boolean = false) {
-    if (mapView == null || location == null) return
-
-    val lat = location.latitude
-    val lon = location.longitude
-
-    if (!isInitialMove && lastCenteredLocation?.first == lat && lastCenteredLocation?.second == lon) {
-        return
-    }
-
-    lastCenteredLocation = lat to lon
-    val geo = GeoPoint(lat, lon)
-    mapView.controller.animateTo(geo)
-    if (isInitialMove) {
-        mapView.controller.setZoom(18.0)
     }
 }
