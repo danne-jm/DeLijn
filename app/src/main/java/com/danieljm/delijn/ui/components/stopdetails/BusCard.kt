@@ -131,7 +131,7 @@ fun BusCard(arrival: ArrivalInfo) {
                         // Always show scheduled arrival time. Do NOT recalculate or override with real-time data.
                         text = arrival.scheduledTime,
                         color = Color.White,
-                        fontSize = 24.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                     // Delay/on time logic

@@ -24,5 +24,8 @@ data class StopDetailUiState(
     val stopLatitude: Double? = null,
     val stopLongitude: Double? = null,
     // Live bus coordinates and vehicle ID
+    val busLatitude: Double? = null,
+    val busLongitude: Double? = null,
+    val busVehicleId: String? = null,
     val busPositions: List<BusPosition> = emptyList()
 )

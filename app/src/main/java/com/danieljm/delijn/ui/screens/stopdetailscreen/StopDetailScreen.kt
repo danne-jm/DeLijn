@@ -91,7 +91,7 @@ fun StopDetailScreen(
             toRemove.forEach { mv.overlays.remove(it) }
 
             uiState.busPositions.forEach { bus ->
-                val markerPoint = org.osmdroid.util.GeoPoint(bus.latitude, bus.longitude)
+                val markerPoint = GeoPoint(bus.latitude, bus.longitude)
                 val marker = Marker(mv).apply {
                     position = markerPoint
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
