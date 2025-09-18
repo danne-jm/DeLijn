@@ -16,5 +16,6 @@ data class RealTimeDoorkomstDto(
     val bestemming: String,
     @Json(name = "real-timeTijdstip") val realTimeTijdstip: String? = null,
     val dienstregelingTijdstip: String? = null,
-    val verwachtTijdstip: String? = null
+    val verwachtTijdstip: String? = null,
+    @Json(name = "vrtnum") val vrtnum: String? = null // Bus id from API
 )

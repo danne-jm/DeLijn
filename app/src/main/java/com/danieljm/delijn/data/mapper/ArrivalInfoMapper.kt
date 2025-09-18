@@ -38,7 +38,8 @@ object ArrivalInfoMapper {
             omschrijving = omschrijving,
             expectedArrivalTime = try { scheduledTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() } catch (e: Exception) { 0L },
             realArrivalTime = try { realTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() } catch (e: Exception) { 0L },
-            isScheduleOnly = false
+            isScheduleOnly = false,
+            vrtnum = dto.vrtnum // Pass bus id from DTO
         )
     }
 

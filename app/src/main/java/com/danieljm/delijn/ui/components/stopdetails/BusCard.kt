@@ -92,7 +92,7 @@ fun BusCard(arrival: ArrivalInfo) {
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "Bus",
+                        text = arrival.vrtnum.toString() ?: "Bus", // Show bus id if available, fallback to "Bus"
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
@@ -117,7 +117,7 @@ fun BusCard(arrival: ArrivalInfo) {
                     val delayColor = when {
                         delayMinutes == 0 -> Color(0xFF74C4AB) // green
                         delayMinutes > 0 -> Color(0xFFD6978E) // red/pink
-                        else -> Color(0xFF62699C) // baby blue
+                        else -> Color(0xFF5C86EC) // baby blue
                     }
                     Text(
                         text = delayText,

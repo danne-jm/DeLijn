@@ -16,6 +16,6 @@ data class ArrivalInfo(
     val omschrijving: String,
     val expectedArrivalTime: Long,
     val realArrivalTime: Long,
-    val isScheduleOnly: Boolean = false
+    val isScheduleOnly: Boolean = false,
+    val vrtnum: String? = null // Bus id, nullable for scheduled arrivals
 )
-
