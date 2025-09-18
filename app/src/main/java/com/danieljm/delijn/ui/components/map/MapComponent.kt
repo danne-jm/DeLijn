@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,6 +31,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import android.graphics.Color as AndroidColor
+import kotlin.math.*
 
 // Map polyline data used to draw line directions (routes)
 data class MapPolyline(
@@ -95,6 +97,7 @@ fun MapComponent(
     val coroutineScope = rememberCoroutineScope()
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    val allUnfocusedMarkers = remember { mutableStateListOf<Marker>() }
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
 
     // Initialize osmdroid configuration
@@ -200,7 +203,10 @@ fun MapComponent(
             }
             overlaysToRemove.forEach { mapView.overlays.remove(it) }
 
-            // Add markers for each stop
+            // Clear and rebuild the unfocused markers list
+            allUnfocusedMarkers.clear()
+
+            // Add markers for each stop (focused stops)
             stops.forEach { stop ->
                 val gp = GeoPoint(stop.latitude, stop.longitude)
                 val marker = Marker(mapView).apply {
@@ -223,7 +229,6 @@ fun MapComponent(
                 val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
                 val marker = Marker(mapView).apply {
                     position = gp
-                    // Use center anchor for rotated markers (like buses) to prevent visual offset
                     if (customMarker.rotation != 0f) {
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     } else {
@@ -237,7 +242,6 @@ fun MapComponent(
                         customMarker.onClick?.invoke()
                         true
                     }
-                    // Apply rotation if specified
                     rotation = customMarker.rotation
                 }
                 mapView.overlays.add(marker)
@@ -250,7 +254,7 @@ fun MapComponent(
                     setPoints(pts)
                     val col = try {
                         poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         AndroidColor.parseColor("#2196F3")
                     }
                     color = col
@@ -259,39 +263,88 @@ fun MapComponent(
                 }
                 mapView.overlays.add(line)
 
-                // Add unfocused stop markers for each coordinate in the polyline, avoiding duplicates.
-                val existingStopMarkerPositions = mapView.overlays
+                // Create unfocused stop markers for polyline coordinates but don't add them yet
+                // They will be added dynamically based on zoom and proximity
+                val existingStopPositions = mapView.overlays
                     .filterIsInstance<Marker>()
                     .map { it.position }
-                    .toSet()
 
                 poly.coordinates.forEach { (lat, lon) ->
                     val newPoint = GeoPoint(lat, lon)
-                    // Avoid adding a marker if one is already at or very near this position
-                    if (existingStopMarkerPositions.none { it.distanceToAsDouble(newPoint) < 1.0 }) {
+                    // Only create marker if no existing marker is very close
+                    val tooClose = existingStopPositions.any {
+                        haversineMeters(it.latitude, it.longitude, lat, lon) < 50.0
+                    }
+
+                    if (!tooClose) {
                         val stopMarker = Marker(mapView).apply {
                             position = newPoint
                             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            title = "Stop" // Generic title for unfocused stops
                             icon = ContextCompat.getDrawable(context, R.drawable.unfocused_bus_stop)
-                            // Find the corresponding stop to make it clickable
-                            val matchingStop = stops.find { it.latitude == lat && it.longitude == lon }
-                            if (matchingStop != null) {
-                                title = matchingStop.name
-                                snippet = "Stop ID: ${matchingStop.id}"
-                                relatedObject = matchingStop.id
-                                setOnMarkerClickListener { _, _ ->
-                                    onStopMarkerClick(matchingStop)
-                                    true
-                                }
+                            relatedObject = "unfocused_${poly.id}_${lat}_${lon}"
+                            setOnMarkerClickListener { _, _ ->
+                                // Create a basic Stop object for navigation
+                                val clickedStop = Stop(
+                                    id = "unknown", // Will need to resolve this
+                                    name = "Stop",
+                                    latitude = lat,
+                                    longitude = lon,
+                                    entiteitnummer = "",
+                                    halteNummer = ""
+                                )
+                                onStopMarkerClick(clickedStop)
+                                true
                             }
                         }
-                        mapView.overlays.add(stopMarker)
+                        allUnfocusedMarkers.add(stopMarker)
                     }
                 }
             }
 
             mapView.invalidate()
         }
+    }
+
+    // Dynamic visibility management for unfocused markers based on zoom and proximity
+    LaunchedEffect(mapState) {
+        val mapView = mapViewRef ?: return@LaunchedEffect
+        val currentZoom = mapState.zoom
+        val mapCenter = mapState.centerLatitude?.let { lat ->
+            mapState.centerLongitude?.let { lon ->
+                GeoPoint(lat, lon)
+            }
+        }
+
+        // Remove all unfocused markers from map first
+        allUnfocusedMarkers.forEach { marker ->
+            mapView.overlays.remove(marker)
+        }
+
+        // Only show unfocused markers if zoomed in enough (zoom level 16 or higher)
+        if (currentZoom >= 16.0 && mapCenter != null) {
+            // Calculate distances and sort by proximity to map center
+            val markersWithDistance = allUnfocusedMarkers.map { marker ->
+                val distance = haversineMeters(
+                    mapCenter.latitude, mapCenter.longitude,
+                    marker.position.latitude, marker.position.longitude
+                )
+                marker to distance
+            }.sortedBy { it.second }
+
+            // Show only the closest 5 unfocused markers within 500 meters
+            val maxMarkersToShow = 5
+            val maxDistanceMeters = 500.0
+
+            markersWithDistance
+                .take(maxMarkersToShow)
+                .filter { it.second <= maxDistanceMeters }
+                .forEach { (marker, _) ->
+                    mapView.overlays.add(marker)
+                }
+        }
+
+        mapView.invalidate()
     }
 
     // Listen for map state changes
@@ -368,4 +421,17 @@ private fun moveMapToLocation(mapView: MapView?, location: Location?, isInitialM
     if (isInitialMove) {
         mapView.controller.setZoom(18.0)
     }
+}
+
+// Haversine formula to calculate distance between two lat/lon points in meters
+private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val earthRadius = 6371000 // Earth radius in meters
+
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+
+    val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    return earthRadius * c
 }
