@@ -100,7 +100,8 @@ fun StopDetailScreen(
                 longitude = bus.longitude,
                 title = "Bus ${bus.vehicleId}",
                 snippet = "Bus ID: ${bus.vehicleId}",
-                iconResourceId = R.drawable.bus_side
+                iconResourceId = R.drawable.bus_top_perspective,
+                rotation = bus.bearing // Use the bearing from the bus position data
             )
         }
     }

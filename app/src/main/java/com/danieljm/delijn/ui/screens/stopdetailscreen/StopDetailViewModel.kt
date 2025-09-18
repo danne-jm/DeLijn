@@ -32,7 +32,7 @@ class StopDetailViewModel(
     // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
     private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
 
-    private suspend fun fetchBusPosition(vehicleId: String): Pair<Double, Double>? {
+    private suspend fun fetchBusPosition(vehicleId: String): Triple<Double, Double, Float>? {
         val apiUrl = "https://api.delijn.be/gtfs/v3/realtime?json=true&position=true&vehicleid=$vehicleId"
         val apiKey = "5eacdcf7e85c4637a14f4d627403935a"
         return withContext(Dispatchers.IO) {
@@ -52,8 +52,9 @@ class StopDetailViewModel(
                         val position = vehicle.optJSONObject("position") ?: continue
                         val lat = position.optDouble("latitude")
                         val lon = position.optDouble("longitude")
+                        val bearing = position.optDouble("bearing", 0.0).toFloat()
                         if (!lat.isNaN() && !lon.isNaN()) {
-                            return@withContext Pair(lat, lon)
+                            return@withContext Triple(lat, lon, bearing)
                         }
                     }
                 }
@@ -74,7 +75,7 @@ class StopDetailViewModel(
             if (!vehicleId.isNullOrEmpty()) {
                 val pos = fetchBusPosition(vehicleId)
                 if (pos != null) {
-                    positions.add(BusPosition(vehicleId, pos.first, pos.second))
+                    positions.add(BusPosition(vehicleId, pos.first, pos.second, pos.third))
                 }
             }
         }

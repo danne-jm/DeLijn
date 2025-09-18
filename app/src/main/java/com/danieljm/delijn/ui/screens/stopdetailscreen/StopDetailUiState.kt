@@ -6,7 +6,8 @@ import com.danieljm.delijn.domain.model.ServedLine
 data class BusPosition(
     val vehicleId: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val bearing: Float = 0f
 )
 
 data class StopDetailUiState(

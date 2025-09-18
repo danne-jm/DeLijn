@@ -60,7 +60,8 @@ data class CustomMarker(
     val title: String,
     val snippet: String? = null,
     val iconResourceId: Int,
-    val onClick: (() -> Unit)? = null
+    val onClick: (() -> Unit)? = null,
+    val rotation: Float = 0f // Rotation in degrees for directional markers
 )
 
 @Composable
@@ -219,6 +220,8 @@ fun MapComponent(
                         customMarker.onClick?.invoke()
                         true
                     }
+                    // Apply rotation if specified
+                    rotation = customMarker.rotation
                 }
                 mapView.overlays.add(marker)
             }
