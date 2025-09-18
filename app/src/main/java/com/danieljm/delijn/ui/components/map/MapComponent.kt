@@ -211,7 +211,12 @@ fun MapComponent(
                 val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
                 val marker = Marker(mapView).apply {
                     position = gp
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    // Use center anchor for rotated markers (like buses) to prevent visual offset
+                    if (customMarker.rotation != 0f) {
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    } else {
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    }
                     title = customMarker.title
                     snippet = customMarker.snippet
                     icon = ContextCompat.getDrawable(context, customMarker.iconResourceId)
