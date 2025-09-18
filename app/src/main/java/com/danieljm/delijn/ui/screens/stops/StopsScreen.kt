@@ -82,6 +82,7 @@ fun StopsScreen(
     }
     var animateToLocationTrigger by remember { mutableStateOf<Location?>(null) }
     var animateToStopTrigger by remember { mutableStateOf<Stop?>(null) }
+    var hasAutoCenteredOnUser by rememberSaveable { mutableStateOf(false) }
 
     val stopsListState = rememberLazyListState()
 
@@ -99,6 +100,19 @@ fun StopsScreen(
         if (pendingCenterOnLocation && userLocation != null) {
             animateToLocationTrigger = userLocation
             pendingCenterOnLocation = false
+        }
+    }
+
+    // Auto-center on user location on first launch
+    LaunchedEffect(userLocation) {
+        if (!hasAutoCenteredOnUser && userLocation != null) {
+            animateToLocationTrigger = userLocation
+            mapState = mapState.copy(
+                centerLatitude = userLocation.latitude,
+                centerLongitude = userLocation.longitude,
+                zoom = 18.0
+            )
+            hasAutoCenteredOnUser = true
         }
     }
 
