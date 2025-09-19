@@ -131,12 +131,36 @@ fun StopDetailScreen(
     // Using LaunchedEffect keeps the same list instance so MapComponent can update markers
     // without needing a full reinitialization.
     LaunchedEffect(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId, uiState.busVehicleId) {
-        // choose positions: if a line is selected and we have selectedBusPositions use them, otherwise use global busPositions
-        val positions = if (uiState.selectedLineId != null && uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
-        // if user selected an individual vehicle, only show that one
-        val filtered = uiState.busVehicleId?.let { vid -> positions.filter { it.vehicleId == vid } } ?: positions
+        // Build a stable list of known positions (prioritize selectedBusPositions then global busPositions)
+        val combined = ArrayList<BusPosition>()
+        // add selected first for priority
+        for (bp in uiState.selectedBusPositions) {
+            combined.add(bp)
+        }
+        // add global positions if we don't already have that vehicleId
+        for (bp in uiState.busPositions) {
+            val found = combined.any { existing -> existing.vehicleId == bp.vehicleId }
+            if (!found) combined.add(bp)
+        }
 
-        val newMarkers = filtered.map { bus ->
+        // Now determine which positions to show
+        val positionsToShow = when {
+            // If a specific vehicle is selected, show only that vehicle
+            uiState.busVehicleId != null -> combined.filter { it.vehicleId == uiState.busVehicleId }
+
+            // If a line is selected but no specific vehicle, show positions for vehicles that belong to that line only
+            uiState.selectedLineId != null -> {
+                val vehiclesForLine = uiState.allArrivals.filter { arrival -> arrival.lineId == uiState.selectedLineId }
+                    .mapNotNull { arrival -> arrival.vrtnum }
+                    .toSet()
+                combined.filter { bp -> vehiclesForLine.contains(bp.vehicleId) }
+            }
+
+            // Default: show all combined positions
+            else -> combined
+        }
+
+        val newMarkers = positionsToShow.map { bus ->
             CustomMarker(
                 id = "bus_${bus.vehicleId}",
                 latitude = bus.latitude,

@@ -74,7 +74,6 @@ fun FloatingBusSelectorRow(
     if (items.isEmpty()) return
 
     val scroll = rememberScrollState()
-    val isToggleable = items.size > 1
 
     Row(
         modifier = modifier
@@ -91,8 +90,8 @@ fun FloatingBusSelectorRow(
             val fgColor = try { item.fgHex?.let { Color(it.toColorInt()) } ?: Color.Black } catch (_: Exception) { Color.Black }
             val borderColor = try { item.borderHex?.let { Color(it.toColorInt()) } } catch (_: Exception) { null }
 
-            val containerColor = if (isSelected || !isToggleable) bgColor else bgColor.copy(alpha = 0.35f)
-            val textColor = if (isSelected || !isToggleable) fgColor else fgColor.copy(alpha = 0.6f)
+            val containerColor = if (isSelected) bgColor else bgColor.copy(alpha = 0.35f)
+            val textColor = if (isSelected) fgColor else fgColor.copy(alpha = 0.6f)
 
             val icons = itemsIcons[item.id] ?: emptyList()
 
@@ -118,11 +117,9 @@ fun FloatingBusSelectorRow(
                 itemModifier = itemModifier.then(Modifier.border(width = 3.dp, color = borderColor, shape = RoundedCornerShape(8.dp)))
             }
 
-            if (isToggleable) {
-                itemModifier = itemModifier.clickable(onClick = {
-                    if (isSelected) onToggle(null) else onToggle(item.id)
-                })
-            }
+            itemModifier = itemModifier.clickable(onClick = {
+                if (isSelected) onToggle(null) else onToggle(item.id)
+            })
 
             itemModifier = itemModifier
                 .padding(horizontal = 12.dp)
@@ -145,7 +142,7 @@ fun FloatingBusSelectorRow(
                     )
 
                     // Show icons when either this line is selected OR when no line is selected (show all by default)
-                    if ((selected == null || isSelected || !isToggleable) && icons.isNotEmpty()) {
+                    if (isSelected && icons.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             icons.forEach { iconEntry ->
                                 val isThisVehicleSelected = iconEntry.vehicleId != null && selectedVehicleId != null && selectedVehicleId == iconEntry.vehicleId
@@ -155,7 +152,10 @@ fun FloatingBusSelectorRow(
                                 val badgeWidth = if (isDeparted) 64.dp else 18.dp
                                 val badgeHeight = if (isDeparted) 20.dp else 18.dp
 
-                                val innerClickable = (iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()) || isThisVehicleSelected
+                                // If badge is "X" (no GPS) the icon must not be clickable
+                                val badgeIsX = iconEntry.badge == "X"
+
+                                val innerClickable = (!badgeIsX) && (iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank())
                                 var iconBoxModifier = Modifier
                                     .size(containerSize)
                                     .clip(RoundedCornerShape(8.dp))

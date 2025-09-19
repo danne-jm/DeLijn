@@ -278,18 +278,31 @@ class StopDetailViewModel(
     fun selectLine(lineId: String?) {
         viewModelScope.launch {
             if (lineId == null) {
-                // Merge any selectedBusPositions (which may have fresher GPS data) into the global busPositions
-                val merged = (_uiState.value.busPositions + _uiState.value.selectedBusPositions)
-                    .distinctBy { it.vehicleId }
+                // When deselecting a line, we need to refresh the global bus positions
+                // to ensure the map shows up-to-date markers for ALL lines.
+                val allUpcoming = _uiState.value.allArrivals.filter {
+                    val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
+                    t > System.currentTimeMillis() - (2 * 60 * 1000)
+                }
+                val allVehicleIds = allUpcoming.mapNotNull { it.vrtnum }.distinct()
+                val freshBusPositions = mutableListOf<BusPosition>()
+                for (vid in allVehicleIds) {
+                    try {
+                        val pos = getVehiclePositionUseCase(vid)
+                        if (pos != null) {
+                            freshBusPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                        }
+                    } catch (_: Exception) { /* ignore individual failures */ }
+                }
 
                 // Incorporate merged vehicle IDs into vehiclesWithGps so icons show GPS state
-                val mergedIds = merged.map { it.vehicleId }.toSet()
+                val mergedIds = freshBusPositions.map { it.vehicleId }.toSet()
                 val newVehiclesWithGps = _uiState.value.vehiclesWithGps + mergedIds
 
                 // Recompute floating selector data using the merged positions so the UI is immediately consistent
                 val (clearItems, clearIcons) = computeFloatingBusSelectorData(
                     arrivals = _uiState.value.allArrivals,
-                    allBusPositions = merged,
+                    allBusPositions = freshBusPositions,
                     vehiclesWithGps = newVehiclesWithGps,
                     selectedLineId = null
                 )
@@ -303,7 +316,7 @@ class StopDetailViewModel(
                     selectedBusPositions = emptyList(),
                     busVehicleId = null,
                     // update global busPositions so untoggling shows the latest known positions
-                    busPositions = merged,
+                    busPositions = freshBusPositions,
                     vehiclesWithGps = newVehiclesWithGps,
                     floatingBusItems = clearItems,
                     floatingBusIcons = clearIcons
@@ -408,12 +421,12 @@ class StopDetailViewModel(
             _uiState.value = _uiState.value.copy(selectedBusPositions = emptyList())
 
             // Recompute floating selector to show all buses again
-            val allBusPos = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+            val allBusPos = _uiState.value.selectedBusPositions + _uiState.value.busPositions
             val (clearItems, clearIcons) = computeFloatingBusSelectorData(
                 arrivals = _uiState.value.allArrivals,
                 allBusPositions = allBusPos,
                 vehiclesWithGps = _uiState.value.vehiclesWithGps,
-                selectedLineId = _uiState.value.selectedLineId
+                selectedLineId = _uiState.value.selectedLineId // keep selectedLineId unchanged
             )
             _uiState.value = _uiState.value.copy(floatingBusItems = clearItems, floatingBusIcons = clearIcons)
             return
@@ -423,6 +436,11 @@ class StopDetailViewModel(
         val existing = (_uiState.value.busPositions + _uiState.value.selectedBusPositions).find { it.vehicleId == vehicleId }
         if (existing != null) {
             _uiState.value = _uiState.value.copy(selectedBusPositions = listOf(existing))
+
+            // Also set selectedLineId to the line that this vehicle belongs to so the selector highlights the line
+            val arrivalForVehicle = _uiState.value.allArrivals.find { it.vrtnum == vehicleId }
+            val newSelectedLine = arrivalForVehicle?.lineId ?: _uiState.value.selectedLineId
+            _uiState.value = _uiState.value.copy(selectedLineId = newSelectedLine)
 
             // Recompute floating selector to reflect the selection immediately
             val allBusPosNow = _uiState.value.selectedBusPositions + _uiState.value.busPositions
@@ -437,6 +455,13 @@ class StopDetailViewModel(
 
         // If a vehicle was selected, mark it as having GPS and start polling
         if (!vehicleId.isNullOrBlank()) {
+            // Ensure selectedLineId is set based on arrivals even if we didn't find an existing cached position
+            val arrivalForVehicleGlobal = _uiState.value.allArrivals.find { it.vrtnum == vehicleId }
+            val newLineIfFound = arrivalForVehicleGlobal?.lineId
+            if (newLineIfFound != null && _uiState.value.selectedLineId != newLineIfFound) {
+                _uiState.value = _uiState.value.copy(selectedLineId = newLineIfFound)
+            }
+
             // Fix: Update vehiclesWithGps in a separate state update to ensure it's captured
             val currentVehicles = _uiState.value.vehiclesWithGps
             val newVehicles = currentVehicles + setOf(vehicleId)
@@ -499,11 +524,6 @@ class StopDetailViewModel(
         }
     }
 
-    override fun onCleared() {
-        selectedVehiclePollJob?.cancel()
-        selectedVehiclePollJob = null
-        super.onCleared()
-    }
 
     // Compute the floating selector data (items + per-line icons) from arrivals and known bus positions
     private fun computeFloatingBusSelectorData(
@@ -536,7 +556,7 @@ class StopDetailViewModel(
             )
 
             // Prepare icons for upcoming arrivals within window (and a small recent past)
-            val iconsForLine = arrs
+            val sorted = arrs
                 .filter { arrival ->
                     val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
                     // keep unknown timestamps as well
@@ -550,18 +570,31 @@ class StopDetailViewModel(
                         else -> Long.MAX_VALUE
                     }
                 })
-                .map { arrival ->
-                    val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
-                    val badge = if (t <= 0L) {
-                        "?"
-                    } else {
-                        val minutes = ((t - nowMs) / 60_000L).toInt()
-                        if (minutes < 0) "Departed" else minutes.toString()
-                    }
-                    val vid = arrival.vrtnum
-                    val hasGps = !vid.isNullOrBlank() && (vehiclesWithGps.contains(vid) || allBusPositions.any { it.vehicleId == vid })
-                    BusIconEntry(vehicleId = vid, badge = badge, hasGps = hasGps)
+
+            val iconsForLine = mutableListOf<BusIconEntry>()
+            var queueIndex = 1
+            for (arrival in sorted) {
+                val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
+                val vid = arrival.vrtnum
+                val hasGps = !vid.isNullOrBlank() && (vehiclesWithGps.contains(vid) || allBusPositions.any { it.vehicleId == vid })
+
+                if (t <= 0L) {
+                    // departed
+                    iconsForLine.add(BusIconEntry(vehicleId = vid, badge = "Departed", hasGps = false))
+                    // departed does not increment queue index
+                    continue
                 }
+
+                // For non-departed arrivals, assign queue numbers (1-based). If GPS missing, show 'X'
+                val badgeText = if (!hasGps) {
+                    "X"
+                } else {
+                    val txt = queueIndex.toString()
+                    txt
+                }
+                iconsForLine.add(BusIconEntry(vehicleId = vid, badge = badgeText, hasGps = hasGps))
+                queueIndex++
+            }
 
             iconsMap[lineId] = iconsForLine
         }
