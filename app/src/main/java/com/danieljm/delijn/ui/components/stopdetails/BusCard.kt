@@ -29,7 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.BusFront
+import com.composables.icons.lucide.CloudOff
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.SignalZero
 import com.danieljm.delijn.domain.model.ArrivalInfo
 import kotlin.math.abs
 
@@ -111,14 +113,15 @@ fun BusCard(arrival: ArrivalInfo) {
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Icon(
-                            imageVector = Lucide.Bus,
-                            contentDescription = "Bus icon",
+                            imageVector = if (arrival.isScheduleOnly) Lucide.CloudOff else Lucide.Bus,
+                            contentDescription = if (arrival.isScheduleOnly) "No GPS" else "Bus",
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = arrival.vrtnum ?: "-",
+                            // If schedule-only (no real-time tracking), show explicit badge text
+                            text = if (arrival.isScheduleOnly) "No GPS" else (arrival.vrtnum ?: "-"),
                             color = busIdTextColor,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold

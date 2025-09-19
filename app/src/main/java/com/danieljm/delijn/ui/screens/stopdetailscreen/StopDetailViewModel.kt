@@ -17,8 +17,7 @@ import com.danieljm.delijn.domain.model.LinePolyline
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlin.system.*
 
 class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
@@ -72,30 +71,39 @@ class StopDetailViewModel(
                         )
                     }
 
-                    // Delegate data fetching to use-cases (repository layer). Prefer real-time, fallback to scheduled.
-                    val allArrivals = try {
-                        Log.i("StopDetailViewModel", "Fetching live arrivals for stop ${stop.entiteitnummer}/${stop.halteNummer}")
-                        getRealTimeArrivalsUseCase(stop.entiteitnummer, stop.halteNummer, servedLines)
-                    } catch (e: Exception) {
-                        Log.e("StopDetailViewModel", "Error fetching real-time arrivals", e)
+                    // Fetch both scheduled and real-time arrivals, then merge them according to rules:
+                    // - Only include arrivals within the next 90 minutes
+                    // - For duplicates, prefer real-time arrival data (replace scheduled)
+                    val nowMs = System.currentTimeMillis()
+                    val windowMs = 90 * 60 * 1000L // 90 minutes
+
+                    val scheduledArrivals = try {
+                        Log.i("StopDetailViewModel", "Fetching scheduled arrivals for stop ${stop.entiteitnummer}/${stop.halteNummer}")
+                        getScheduledArrivalsUseCase(stop.entiteitnummer, stop.halteNummer, servedLines)
+                    } catch (_: Exception) {
+                        Log.e("StopDetailViewModel", "Error fetching scheduled arrivals")
                         emptyList()
                     }
 
-                    val arrivalsToShow = if (allArrivals.isEmpty()) {
-                        Log.i("StopDetailViewModel", "No live arrivals, fetching scheduled arrivals.")
-                        try {
-                            getScheduledArrivalsUseCase(stop.entiteitnummer, stop.halteNummer, servedLines)
-                        } catch (e: Exception) {
-                            Log.e("StopDetailViewModel", "Error fetching scheduled arrivals", e)
-                            emptyList()
-                        }
-                    } else allArrivals
+                    val realTimeArrivals = try {
+                        Log.i("StopDetailViewModel", "Fetching live arrivals for stop ${stop.entiteitnummer}/${stop.halteNummer}")
+                        getRealTimeArrivalsUseCase(stop.entiteitnummer, stop.halteNummer, servedLines)
+                    } catch (_: Exception) {
+                        Log.e("StopDetailViewModel", "Error fetching real-time arrivals")
+                        emptyList()
+                    }
+
+                    // Filter each source by the 90-minute window
+                    val schedFiltered = scheduledArrivals.filter { it.expectedArrivalTime in nowMs..(nowMs + windowMs) }
+                    val realtimeFiltered = realTimeArrivals.filter { it.realArrivalTime > 0L && it.realArrivalTime in nowMs..(nowMs + windowMs) }
+
+                    val arrivalsToShow = mergeArrivalsPreferRealtime(schedFiltered, realtimeFiltered)
 
                     // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
                     val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
 
                     // Build polylines for the enriched lines using cached search results
-                    val polylines = try { buildPolylinesFromCache() } catch (e: Exception) { emptyList() }
+                    val polylines = try { buildPolylinesFromCache() } catch (_: Exception) { emptyList() }
 
                     val busPositions = fetchAllBusPositions(enriched)
 
@@ -176,27 +184,33 @@ class StopDetailViewModel(
                 }
 
                 // Fetch live arrivals
-                val allArrivals = try {
-                    getRealTimeArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
-                } catch (e: Exception) {
-                    Log.e("StopDetailViewModel", "Error fetching real-time arrivals", e)
+                val nowMs = System.currentTimeMillis()
+                val windowMs = 90 * 60 * 1000L
+
+                val scheduledArrivals = try {
+                    getScheduledArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
+                } catch (_: Exception) {
+                    Log.e("StopDetailViewModel", "Error fetching scheduled arrivals")
                     emptyList()
                 }
 
-                val arrivalsToShow = if (allArrivals.isEmpty()) {
-                    try {
-                        getScheduledArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
-                    } catch (e: Exception) {
-                        Log.e("StopDetailViewModel", "Error fetching scheduled arrivals", e)
-                        emptyList()
-                    }
-                } else allArrivals
+                val realTimeArrivals = try {
+                    getRealTimeArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
+                } catch (_: Exception) {
+                    Log.e("StopDetailViewModel", "Error fetching real-time arrivals")
+                    emptyList()
+                }
+
+                val schedFiltered = scheduledArrivals.filter { it.expectedArrivalTime in nowMs..(nowMs + windowMs) }
+                val realtimeFiltered = realTimeArrivals.filter { it.realArrivalTime > 0L && it.realArrivalTime in nowMs..(nowMs + windowMs) }
+
+                val arrivalsToShow = mergeArrivalsPreferRealtime(schedFiltered, realtimeFiltered)
 
                 // Enrich arrivals
                 val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
 
                 // Build polylines (may reuse cache). If force refresh passed, cache was cleared earlier in enrich.
-                val polylines = try { buildPolylinesFromCache() } catch (e: Exception) { emptyList() }
+                val polylines = try { buildPolylinesFromCache() } catch (_: Exception) { emptyList() }
 
                 val busPositions = fetchAllBusPositions(enriched)
 
@@ -301,10 +315,43 @@ class StopDetailViewModel(
                 if (finalCoords.isNotEmpty()) {
                     polylines.add(LinePolyline(id = key, coordinates = finalCoords, colorHex = candidate.kleurAchterGrond))
                 }
-            } catch (e: Exception) {
-                Log.w("StopDetailViewModel", "Failed to fetch haltes for $key", e)
+            } catch (_: Exception) {
+                Log.w("StopDetailViewModel", "Failed to fetch haltes for $key")
             }
         }
         return polylines
+    }
+
+    // Merge scheduled and real-time arrival lists:
+    // - Keep scheduled arrivals that are within the window
+    // - Replace scheduled entries with real-time entries when they represent the same trip
+    // - Add real-time-only arrivals
+    private fun mergeArrivalsPreferRealtime(
+        scheduled: List<com.danieljm.delijn.domain.model.ArrivalInfo>,
+        realtime: List<com.danieljm.delijn.domain.model.ArrivalInfo>
+    ): List<com.danieljm.delijn.domain.model.ArrivalInfo> {
+        val resultMap = linkedMapOf<String, com.danieljm.delijn.domain.model.ArrivalInfo>()
+
+        fun keyFor(a: com.danieljm.delijn.domain.model.ArrivalInfo): String {
+            // Use lineId + expectedArrivalTime + destination to dedupe; expectedArrivalTime comes from scheduled time
+            return "${a.lineId}_${a.expectedArrivalTime}_${a.destination}"
+        }
+
+        // Start with scheduled arrivals (they are marked as schedule-only by mapper)
+        for (s in scheduled) {
+            val k = keyFor(s)
+            resultMap[k] = s
+        }
+
+        // For realtime arrivals, prefer them: replace existing scheduled entry with realtime info
+        for (r in realtime) {
+            val k = keyFor(r)
+            // Ensure realtime entries are marked as not schedule-only
+            val updated = if (r.isScheduleOnly) r.copy(isScheduleOnly = false) else r
+            resultMap[k] = updated
+        }
+
+        // Return values in insertion order: scheduled-first, realtime replacements will take place
+        return resultMap.values.toList()
     }
 }
