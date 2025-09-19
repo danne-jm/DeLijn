@@ -35,6 +35,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.SignalZero
 import com.danieljm.delijn.domain.model.ArrivalInfo
 import kotlin.math.abs
+import androidx.core.graphics.toColorInt
 
 @Composable
 fun BusCard(arrival: ArrivalInfo) {
@@ -99,8 +100,8 @@ fun BusCard(arrival: ArrivalInfo) {
                             .then(
                                 arrival.lineBackgroundBorderColorHex?.let { hex ->
                                     try {
-                                        val parsed = Color(AndroidColor.parseColor(hex))
-                                        Modifier.border(width = 2.dp, color = parsed, shape = RoundedCornerShape(8.dp))
+                                        val parsed = Color(hex.toColorInt())
+                                        Modifier.border(width = 3.dp, color = parsed, shape = RoundedCornerShape(8.dp))
                                     } catch (_: Exception) {
                                         Modifier
                                     }
