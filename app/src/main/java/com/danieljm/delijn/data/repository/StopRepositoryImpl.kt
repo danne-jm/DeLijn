@@ -12,12 +12,58 @@ import com.danieljm.delijn.domain.model.LineDirectionsResponse
 import com.danieljm.delijn.domain.model.LineDirectionsSearchResponse
 import com.danieljm.delijn.domain.model.Stop
 import com.danieljm.delijn.domain.repository.StopRepository
+import com.danieljm.delijn.data.remote.dto.OsrmRouteRequestDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 /** Implementation of StopRepository (wires local + remote). */
 class StopRepositoryImpl(
     private val api: DeLijnApiService,
     private val dao: StopDao
 ) : StopRepository {
+
+    // Simple in-memory TTL cache for route geometries
+    private data class CacheEntry(val ts: Long, val coords: List<Pair<Double, Double>>)
+    private val routeCache = ConcurrentHashMap<String, CacheEntry>()
+    private val ROUTE_CACHE_TTL_MS = 1000L * 60 * 60 // 1 hour
+    private val ROUTE_CACHE_MAX = 300
+
+    private fun makeRouteCacheKey(coordsLatLon: List<Pair<Double, Double>>,
+                                  alternatives: Boolean = false,
+                                  geometries: String = "geojson",
+                                  overview: String = "full",
+                                  steps: Boolean = false): String {
+        // Normalize and round to 6 decimals
+        val sb = StringBuilder()
+        coordsLatLon.forEach { (lat, lon) ->
+            sb.append(String.format("%.6f,%.6f;", lat, lon))
+        }
+        sb.append("alts=").append(if (alternatives) "1" else "0")
+        sb.append("|geom=").append(geometries)
+        sb.append("|ov=").append(overview)
+        sb.append("|steps=").append(if (steps) "1" else "0")
+        return sb.toString()
+    }
+
+    private fun getCachedRoute(key: String): List<Pair<Double, Double>>? {
+        val entry = routeCache[key] ?: return null
+        if (System.currentTimeMillis() - entry.ts > ROUTE_CACHE_TTL_MS) {
+            routeCache.remove(key)
+            return null
+        }
+        return entry.coords
+    }
+
+    private fun putCachedRoute(key: String, coords: List<Pair<Double, Double>>) {
+        if (routeCache.size >= ROUTE_CACHE_MAX) {
+            // remove oldest entry (not strictly LRU, but keeps bounded size)
+            val oldestKey = routeCache.entries.minByOrNull { it.value.ts }?.key
+            if (oldestKey != null) routeCache.remove(oldestKey)
+        }
+        routeCache[key] = CacheEntry(System.currentTimeMillis(), coords)
+    }
+
     override suspend fun searchStops(query: String): List<Stop> {
         val dtos = api.searchStops(query)
         val entities = dtos.map { StopMapper.dtoToEntity(it) }
@@ -130,6 +176,30 @@ class StopRepositoryImpl(
             dto.toDomain()
         } catch (e: Exception) {
             // If core API doesn't have details, return null
+            null
+        }
+    }
+
+    override suspend fun getRouteGeometry(coordinatesLatLon: List<Pair<Double, Double>>): List<Pair<Double, Double>>? {
+        if (coordinatesLatLon.size < 2) return null
+
+        val cacheKey = makeRouteCacheKey(coordinatesLatLon)
+        val cached = getCachedRoute(cacheKey)
+        if (cached != null) return cached
+
+        return try {
+            // Convert to OSRM expected format: [lon, lat]
+            val coordsLonLat = coordinatesLatLon.map { (lat, lon) -> listOf(lon, lat) }
+            val request = OsrmRouteRequestDto(coordinates = coordsLonLat)
+            val resp = withContext(Dispatchers.IO) { api.getRouteGeometry(request) }
+            val routeCoords = resp.routes.firstOrNull()?.geometry?.coordinates
+            val mapped = routeCoords?.map { (lon, lat) -> Pair(lat, lon) }
+            if (mapped != null && mapped.isNotEmpty()) {
+                putCachedRoute(cacheKey, mapped)
+            }
+            mapped
+        } catch (e: Exception) {
+            Log.w("StopRepository", "getRouteGeometry failed: ${e.message}")
             null
         }
     }

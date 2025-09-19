@@ -54,6 +54,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.danieljm.delijn.data.location.LocationProvider
 import com.danieljm.delijn.data.location.LocationProviderImpl
+import com.danieljm.delijn.domain.usecase.GetRouteGeometryUseCase
 
 val appModule = module {
     // ViewModel for shared map state
@@ -101,19 +102,21 @@ val appModule = module {
     single { GetLineDirectionStopsUseCase(get()) }
     // Vehicle position use-case
     single { GetVehiclePositionUseCase(get()) }
+    // Route geometry use-case
+    single<GetRouteGeometryUseCase> { GetRouteGeometryUseCase(get()) }
 
     // Provide FusedLocationProviderClient and LocationProvider implementation
     single<FusedLocationProviderClient> { LocationServices.getFusedLocationProviderClient(androidContext()) }
     single<LocationProvider> { LocationProviderImpl(get()) }
 
     // ViewModels
-    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get()) }
+    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get<LocationProvider>()) }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }
     viewModel { RouteDetailViewModel(get()) }
     viewModel { HomeViewModel() }
     viewModel { SettingsViewModel() }
-    viewModel { StopDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { StopDetailViewModel(get<GetStopDetailsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get<GetRealTimeArrivalsUseCase>(), get<GetScheduledArrivalsUseCase>(), get<GetLineDirectionDetailUseCase>(), get<GetLineDirectionsSearchUseCase>(), get<GetLineDirectionStopsUseCase>(), get<GetVehiclePositionUseCase>(), get<GetRouteGeometryUseCase>()) }
     viewModel { PlanViewModel(get(), get(), get()) }
 }

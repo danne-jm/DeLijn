@@ -12,6 +12,7 @@ import com.danieljm.delijn.domain.usecase.GetScheduledArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
+import com.danieljm.delijn.domain.usecase.GetRouteGeometryUseCase
 import com.danieljm.delijn.domain.model.LinePolyline
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,8 @@ class StopDetailViewModel(
     private val getLineDirectionDetailUseCase: GetLineDirectionDetailUseCase,
     private val getLineDirectionsSearchUseCase: GetLineDirectionsSearchUseCase,
     private val getLineDirectionStopsUseCase: GetLineDirectionStopsUseCase,
-    private val getVehiclePositionUseCase: GetVehiclePositionUseCase
+    private val getVehiclePositionUseCase: GetVehiclePositionUseCase,
+    private val getRouteGeometryUseCase: GetRouteGeometryUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StopDetailUiState())
     val uiState: StateFlow<StopDetailUiState> = _uiState
@@ -283,8 +285,21 @@ class StopDetailViewModel(
             try {
                 val resp = getLineDirectionStopsUseCase(ent, lijn, richting)
                 val coords = resp.haltes.map { it.latitude to it.longitude }
-                if (coords.isNotEmpty()) {
-                    polylines.add(LinePolyline(id = key, coordinates = coords, colorHex = candidate.kleurAchterGrond))
+
+                // Attempt to resolve a routed geometry from the backend OSRM proxy
+                val routed: List<Pair<Double, Double>>? = try {
+                    if (coords.size >= 2) {
+                        getRouteGeometryUseCase(coords)
+                    } else null
+                } catch (e: Exception) {
+                    Log.w("StopDetailViewModel", "Routing failed for $key: ${e.message}")
+                    null
+                }
+
+                val finalCoords = routed ?: coords
+
+                if (finalCoords.isNotEmpty()) {
+                    polylines.add(LinePolyline(id = key, coordinates = finalCoords, colorHex = candidate.kleurAchterGrond))
                 }
             } catch (e: Exception) {
                 Log.w("StopDetailViewModel", "Failed to fetch haltes for $key", e)

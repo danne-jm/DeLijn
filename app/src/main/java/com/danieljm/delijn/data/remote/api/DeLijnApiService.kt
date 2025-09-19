@@ -11,9 +11,13 @@ import com.danieljm.delijn.data.remote.dto.RouteDto
 import com.danieljm.delijn.data.remote.dto.StopDto
 import com.danieljm.delijn.data.remote.dto.RealTimeArrivalsResponseDto
 import com.danieljm.delijn.data.remote.dto.ScheduledArrivalsResponseDto
+import com.danieljm.delijn.data.remote.dto.OsrmRouteRequestDto
+import com.danieljm.delijn.data.remote.dto.OsrmRouteResponseDto
 import okhttp3.ResponseBody
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Path
+import retrofit2.http.POST
 import retrofit2.http.Query
 
 /** Retrofit interface for De Lijn Open Data endpoints routed through the local proxy */
@@ -79,6 +83,10 @@ interface DeLijnApiService {
         @Path("lijnnummer") lijnnummer: String,
         @Path("richting") richting: String
     ): LineDirectionStopsResponseDto
+
+    // OSRM route geometry proxy endpoint (POST) - backend should implement this
+    @POST("route/osrm")
+    suspend fun getRouteGeometry(@Body request: OsrmRouteRequestDto): OsrmRouteResponseDto
 
     // GTFS realtime via proxy. Return raw body for custom parsing (JSON structure varies).
     @GET("delijn/gtfs/v3/realtime")
