@@ -259,8 +259,8 @@ fun StopDetailScreen(
             val itemsIconsState = remember { mutableStateOf<Map<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>>(emptyMap()) }
 
             LaunchedEffect(uiState.allArrivals, uiState.selectedBusPositions, uiState.busPositions, uiState.selectedLineId, uiState.busVehicleId, uiState.vehiclesWithGps) {
-                // Short debounce so quick state churn (selection toggles) doesn't create visual flicker
-                kotlinx.coroutines.delay(100L)
+                // Reduce debounce to minimize visual lag
+                kotlinx.coroutines.delay(50L)
 
                 val map = mutableMapOf<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>()
                 val nowMs = System.currentTimeMillis()
@@ -284,13 +284,11 @@ fun StopDetailScreen(
                 for (item in items) {
                     if (item.id == uiState.selectedLineId) {
                         val arrivalsForLine = arrivalsByLine[item.id] ?: emptyList()
-                        // include arrivals that occurred up to recentPastMs ago, and upcoming arrivals within windowMs
                         val arrivalsWithinWindow = arrivalsForLine.filter { a ->
                             val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
                             t in (nowMs - recentPastMs)..(nowMs + windowMs)
                         }
 
-                        // Partition into departed (past) and upcoming (future)
                         val departed = arrivalsWithinWindow.filter { a ->
                             val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
                             t < nowMs
@@ -303,12 +301,13 @@ fun StopDetailScreen(
 
                         val icons = mutableListOf<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>()
 
-                        // Add departed items first (most recent first) with badge "Departed" and do not count toward numeric positions
                         for (arrival in departed) {
                             val vid = arrival.vrtnum
                             val pos = vid?.let { v -> positions.find { it.vehicleId == v } }
                             val seenRecently = vid?.let { v -> vehicleLastSeen[v]?.let { last -> nowMs - last < 5_000L } == true } ?: false
+                            // Fix: Use more comprehensive GPS detection including uiState.vehiclesWithGps
                             val hasGps = (pos != null) || seenRecently || (vid != null && uiState.vehiclesWithGps.contains(vid))
+
                             if (!vid.isNullOrBlank()) {
                                 icons.add(com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = vid, badge = "Departed", hasGps = hasGps))
                             } else {
@@ -316,19 +315,17 @@ fun StopDetailScreen(
                             }
                         }
 
-                        // Now add upcoming items in chronological order. Numeric badges reflect position in the upcoming queue
                         var positionIndex = 1
                         for (arrival in upcoming) {
                             val vid = arrival.vrtnum
                             val pos = vid?.let { v -> positions.find { it.vehicleId == v } }
                             val seenRecently = vid?.let { v -> vehicleLastSeen[v]?.let { last -> nowMs - last < 5_000L } == true } ?: false
+                            // Fix: Use more comprehensive GPS detection
                             val hasGps = (pos != null) || seenRecently || (vid != null && uiState.vehiclesWithGps.contains(vid))
 
-                            // Missing GPS buses show badge "X" (but still occupy their place in the queue numbering)
                             val badgeText = if (!hasGps) {
                                 "X"
                             } else {
-                                // numeric badge for upcoming with GPS
                                 val s = positionIndex.toString()
                                 positionIndex += 1
                                 s

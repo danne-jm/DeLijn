@@ -31,8 +31,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.times
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
 import com.danieljm.delijn.R
@@ -63,14 +65,14 @@ data class BusIconEntry(
     val hasGps: Boolean
 )
 
+// Replace the entire FloatingBusSelectorRow content in FloatingBusSelector.kt:
+
 @Composable
 fun FloatingBusSelectorRow(
     items: List<FloatingBusItem>,
     selected: String?,
     modifier: Modifier = Modifier,
-    // map of lineId -> list of BusIconEntry to render when that line is selected
     itemsIcons: Map<String, List<BusIconEntry>> = emptyMap(),
-    // currently selected vehicle id (if user tapped an individual bus)
     selectedVehicleId: String? = null,
     onToggle: (String?) -> Unit,
     onBusSelected: (String?) -> Unit = {}
@@ -90,7 +92,6 @@ fun FloatingBusSelectorRow(
         items.forEach { item ->
             val isSelected = selected != null && selected == item.id
 
-            // parse colors with fallback
             val bgColor = try { item.bgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color(0xFF4CAF50) } catch (_: Exception) { Color(0xFF4CAF50) }
             val fgColor = try { item.fgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color.Black } catch (_: Exception) { Color.Black }
             val borderColor = try { item.borderHex?.let { Color(AndroidColor.parseColor(it)) } } catch (_: Exception) { null }
@@ -98,12 +99,22 @@ fun FloatingBusSelectorRow(
             val containerColor = if (isSelected) bgColor else bgColor.copy(alpha = 0.35f)
             val textColor = if (isSelected) fgColor else fgColor.copy(alpha = 0.6f)
 
-            // icons to show for this line (usually only populated for the selected line)
             val icons = itemsIcons[item.id] ?: emptyList()
 
-            // Build modifier: clip -> background -> optional border (so border is visible) -> clickable -> padding -> animate
+            // Calculate minimum width needed for departed badges
+            val minWidthForDeparted = if (icons.any { it.badge == "Departed" }) {
+                // Line text width + some padding + (number of departed * wider badge width)
+                val departedCount = icons.count { it.badge == "Departed" }
+                val baseWidth = 60.dp // Minimum for line text
+                val departedBadgeSpace = departedCount * 70.dp // Extra space per departed badge
+                val otherIconsSpace = (icons.size - departedCount) * 40.dp // Regular icons
+                baseWidth + departedBadgeSpace + otherIconsSpace + 8.dp // padding
+            } else {
+                Modifier.wrapContentWidth()
+            }
+
             var itemModifier = Modifier
-                .wrapContentWidth()
+                .then(if (minWidthForDeparted is Dp) Modifier.width(minWidthForDeparted) else Modifier.wrapContentWidth())
                 .height(40.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(containerColor)
@@ -119,9 +130,7 @@ fun FloatingBusSelectorRow(
                 .padding(horizontal = 12.dp)
                 .animateContentSize()
 
-            Box(
-                modifier = itemModifier,
-            ) {
+            Box(modifier = itemModifier) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -129,7 +138,6 @@ fun FloatingBusSelectorRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Line text stays left-aligned in the row
                     Text(
                         text = item.displayText,
                         color = textColor,
@@ -138,11 +146,11 @@ fun FloatingBusSelectorRow(
                         modifier = Modifier.align(Alignment.CenterVertically)
                     )
 
-                    // When selected and there are icons, show them to the right — animateContentSize will animate width
                     if (isSelected && icons.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            // Replace the bus icon rendering section in FloatingBusSelector.kt:
+
                             icons.forEach { iconEntry ->
-                                // Each icon shows bus front icon regardless of GPS, with a small centered badge
                                 val isThisVehicleSelected = iconEntry.vehicleId != null && selectedVehicleId != null && selectedVehicleId == iconEntry.vehicleId
 
                                 val isDeparted = iconEntry.badge == "Departed"
@@ -150,7 +158,6 @@ fun FloatingBusSelectorRow(
                                 val badgeWidth = if (isDeparted) 64.dp else 18.dp
                                 val badgeHeight = if (isDeparted) 20.dp else 18.dp
 
-                                // Build icon box modifier and only add clickable when the bus has GPS and a vehicleId
                                 val innerClickable = iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()
                                 var iconBoxModifier = Modifier
                                     .size(containerSize)
@@ -159,13 +166,11 @@ fun FloatingBusSelectorRow(
 
                                 if (innerClickable) {
                                     iconBoxModifier = iconBoxModifier.clickable(onClick = {
-                                        // Select/deselect only when the vehicle has GPS
                                         if (isThisVehicleSelected) onBusSelected(null) else onBusSelected(iconEntry.vehicleId)
                                     })
                                 }
 
                                 Box(modifier = iconBoxModifier) {
-                                    // Always show bus front icon (same for GPS-missing and GPS-available)
                                     Icon(
                                         imageVector = Lucide.BusFront,
                                         contentDescription = "bus icon",
@@ -175,24 +180,29 @@ fun FloatingBusSelectorRow(
                                             .align(Alignment.Center)
                                     )
 
-                                    // badge in top-right corner; for Departed entries make it wider and add padding
+                                    // Fix: Adjust badge alignment based on whether it's a single departed item
+                                    val badgeAlignment = Alignment.CenterEnd
+
                                     Surface(
                                         modifier = Modifier
-                                            .align(Alignment.CenterEnd)
+                                            .align(badgeAlignment)
                                             .width(badgeWidth)
                                             .height(badgeHeight),
                                         shape = RoundedCornerShape(8.dp),
                                         color = Color.Black.copy(alpha = 0.85f)
                                     ) {
                                         val badgeInnerPadding = if (isDeparted) 6.dp else 0.dp
-                                        Box(modifier = Modifier
-                                            .width(badgeWidth)
-                                            .height(badgeHeight)
-                                            .padding(horizontal = badgeInnerPadding), contentAlignment = Alignment.Center) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(badgeWidth)
+                                                .height(badgeHeight)
+                                                .padding(horizontal = badgeInnerPadding),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Text(
                                                 text = iconEntry.badge,
                                                 color = Color.White,
-                                                fontSize = if (isDeparted) 10.sp else 10.sp,
+                                                fontSize = 10.sp,
                                                 textAlign = TextAlign.Center,
                                                 maxLines = 1,
                                                 style = TextStyle(lineHeight = 12.sp)

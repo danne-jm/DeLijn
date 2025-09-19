@@ -383,14 +383,11 @@ class StopDetailViewModel(
     }
 
     // Allow selecting an individual bus vehicle; if vehicleId==null clear the selection
-    fun selectBus(vehicleId: String?) {
-          // update selected vehicle id in state
-        _uiState.value = _uiState.value.copy(busVehicleId = vehicleId)
+    // Replace the selectBus method in StopDetailViewModel.kt:
 
-       // If a vehicle was selected, optimistically mark it as having GPS so the UI won't flicker
-        if (!vehicleId.isNullOrBlank()) {
-            _uiState.value = _uiState.value.copy(vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(vehicleId))
-        }
+    fun selectBus(vehicleId: String?) {
+        // update selected vehicle id in state
+        _uiState.value = _uiState.value.copy(busVehicleId = vehicleId)
 
         // Cancel any previous polling job
         selectedVehiclePollJob?.cancel()
@@ -400,25 +397,46 @@ class StopDetailViewModel(
         val existing = (_uiState.value.busPositions + _uiState.value.selectedBusPositions).find { it.vehicleId == vehicleId }
         if (existing != null) {
             _uiState.value = _uiState.value.copy(selectedBusPositions = listOf(existing))
-}
-        // If a vehicle was selected, start a polling job to refresh its position periodically
+        }
+
+        // If a vehicle was selected, mark it as having GPS and start polling
         if (!vehicleId.isNullOrBlank()) {
+            // Fix: Update vehiclesWithGps in a separate state update to ensure it's captured
+            val currentVehicles = _uiState.value.vehiclesWithGps
+            val newVehicles = currentVehicles + setOf(vehicleId)
+            _uiState.value = _uiState.value.copy(vehiclesWithGps = newVehicles)
+
             selectedVehiclePollJob = viewModelScope.launch {
+                // Immediate position fetch
+                try {
+                    val pos = try { getVehiclePositionUseCase(vehicleId) } catch (_: Exception) { null }
+                    if (pos != null) {
+                        val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
+                        val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
+                        _uiState.value = _uiState.value.copy(
+                            selectedBusPositions = merged,
+                            vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId)
+                        )
+                    }
+                } catch (_: Exception) {
+                    // ignore initial fetch failure
+                }
+
+                // Continue with periodic polling
                 while (true) {
                     try {
                         val pos = try { getVehiclePositionUseCase(vehicleId) } catch (_: Exception) { null }
                         if (pos != null) {
                             val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
-                            // Merge the updated position into selectedBusPositions instead of overwriting so
-                            // we don't remove other known vehicle positions which are needed for icon GPS flags.
                             val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
-                            Log.d("StopDetailViewModel", "poll-selected: merged selectedBusPositions for vehicle=${bp.vehicleId}; selectedCount=${merged.size}")
-                            _uiState.value = _uiState.value.copy(selectedBusPositions = merged, vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId))
+                            _uiState.value = _uiState.value.copy(
+                                selectedBusPositions = merged,
+                                vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId)
+                            )
                         }
                     } catch (_: Exception) {
                         // ignore per-iteration failures
                     }
-                    // Poll interval (e.g., 10 seconds)
                     delay(10_000L)
                 }
             }
