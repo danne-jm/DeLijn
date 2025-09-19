@@ -1,6 +1,7 @@
 package com.danieljm.delijn.ui.screens.stopdetailscreen
 
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -176,8 +177,8 @@ fun StopDetailScreen(
             // Use the shared MapComponent instead of creating a new map
             MapComponent(
                 modifier = Modifier.fillMaxSize(),
-                stops = listOfNotNull(currentStop), // Show the current stop as a marker
-                customMarkers = busMarkers, // Show bus positions
+                stops = listOfNotNull(currentStop),
+                customMarkers = busMarkers,
                 polylines = uiState.polylines.map { lp ->
                     MapPolyline(
                         id = lp.id,
@@ -188,8 +189,9 @@ fun StopDetailScreen(
                 mapState = mapState,
                 onMapStateChanged = { newState -> mapState = newState },
                 centerOnStop = currentStop,
-                mapCenterOffset = 250.0, // Offset map center so stop appears higher on screen
-                showUserLocationMarker = false // Don't show user location in detail view
+                mapCenterOffset = 250.0,
+                showUserLocationMarker = false,
+                darkMode = isSystemInDarkTheme()
             )
 
             // Error overlay positioned at the top of the content area

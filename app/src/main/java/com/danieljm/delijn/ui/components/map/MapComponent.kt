@@ -2,6 +2,7 @@ package com.danieljm.delijn.ui.components.map
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Paint
 import android.location.Location
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -26,6 +27,7 @@ import com.danieljm.delijn.domain.model.Stop
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -91,7 +93,8 @@ fun MapComponent(
     animateToStop: Stop? = null,
     showUserLocationMarker: Boolean = true,
     centerOnStop: Stop? = null,
-    mapCenterOffset: Double = 0.0
+    mapCenterOffset: Double = 0.0,
+    darkMode: Boolean = false // new parameter to toggle dark tiles
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -195,8 +198,25 @@ fun MapComponent(
     }
 
     // Update stop markers, custom markers and polylines
-    LaunchedEffect(stops, customMarkers, polylines) {
+    LaunchedEffect(stops, customMarkers, polylines, darkMode) {
         mapViewRef?.let { mapView ->
+            // Update tile source based on darkMode flag
+            try {
+                if (darkMode) {
+                    // CartoDB Dark Matter tile source
+                    val cartoDark = XYTileSource(
+                        "CartoDB.DarkMatter",
+                        0, 19, 256, ".png",
+                        arrayOf("https://basemaps.cartocdn.com/dark_all/")
+                    )
+                    mapView.setTileSource(cartoDark)
+                } else {
+                    mapView.setTileSource(TileSourceFactory.MAPNIK)
+                }
+            } catch (e: Exception) {
+                // ignore tile source change errors
+            }
+
             // Remove previous overlays except "You are here"
             val overlaysToRemove = mapView.overlays.filter {
                 (it is Marker && it.title != "You are here") || it is Polyline
@@ -249,7 +269,29 @@ fun MapComponent(
 
             // Add polylines (routes)
             polylines.forEach { poly ->
-                val pts = poly.coordinates.map { (lat, lon) -> GeoPoint(lat, lon) }
+                // Densify based on current zoom to reduce long segments and visual gaps
+                val currentZoom = try { mapView.zoomLevelDouble } catch (e: Exception) { mapState.zoom }
+                val finalCoordsList = densifyCoordinates(poly.coordinates, currentZoom)
+                val pts = finalCoordsList.map { (lat, lon) -> GeoPoint(lat, lon) }
+
+                // Background line to smooth out seams/gaps at low zoom
+                val bgLine = Polyline(mapView).apply {
+                    setPoints(pts)
+                    val baseCol = try {
+                        poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
+                    } catch (_: Exception) {
+                        AndroidColor.parseColor("#2196F3")
+                    }
+                    color = withAlpha(baseCol, 200) // slightly translucent background
+                    width = poly.width + 6f
+                    isEnabled = false
+                    val p = paint
+                    p.isAntiAlias = true
+                    p.strokeJoin = Paint.Join.ROUND
+                    p.strokeCap = Paint.Cap.ROUND
+                }
+                mapView.overlays.add(bgLine)
+
                 val line = Polyline(mapView).apply {
                     setPoints(pts)
                     val col = try {
@@ -260,6 +302,12 @@ fun MapComponent(
                     color = col
                     width = poly.width
                     isEnabled = true
+
+                    // Improve stroke rendering to reduce visible gaps at low zoom
+                    val p = paint
+                    p.isAntiAlias = true
+                    p.strokeJoin = Paint.Join.ROUND
+                    p.strokeCap = Paint.Cap.ROUND
                 }
                 mapView.overlays.add(line)
 
@@ -434,4 +482,48 @@ private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Doub
     val c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
     return earthRadius * c
+}
+
+// Add helper to densify coordinates to avoid visible gaps when zoomed out
+private fun densifyCoordinates(coords: List<Pair<Double, Double>>, zoom: Double): List<Pair<Double, Double>> {
+    if (coords.size < 2) return coords
+
+    // Decide threshold based on zoom: at low zoom the screen-space distance between points is large
+    val thresholdMeters = when {
+        zoom < 6.0 -> 5000.0
+        zoom < 8.0 -> 2000.0
+        zoom < 10.0 -> 1000.0
+        zoom < 12.0 -> 250.0
+        zoom < 14.0 -> 100.0
+        else -> 0.0
+    }
+
+    if (thresholdMeters <= 0.0) return coords
+
+    val result = mutableListOf<Pair<Double, Double>>()
+    for (i in 0 until coords.size - 1) {
+        val a = coords[i]
+        val b = coords[i + 1]
+        result.add(a)
+        val dist = haversineMeters(a.first, a.second, b.first, b.second)
+        if (dist > thresholdMeters) {
+            val segments = kotlin.math.ceil(dist / thresholdMeters).toInt()
+            for (s in 1 until segments) {
+                val t = s.toDouble() / segments.toDouble()
+                val lat = a.first + (b.first - a.first) * t
+                val lon = a.second + (b.second - a.second) * t
+                result.add(Pair(lat, lon))
+            }
+        }
+    }
+    // add last point
+    result.add(coords.last())
+    return result
+}
+
+private fun withAlpha(color: Int, alpha: Int): Int {
+    val r = AndroidColor.red(color)
+    val g = AndroidColor.green(color)
+    val b = AndroidColor.blue(color)
+    return AndroidColor.argb(alpha, r, g, b)
 }
