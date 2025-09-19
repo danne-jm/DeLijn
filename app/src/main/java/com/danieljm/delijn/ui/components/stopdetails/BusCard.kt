@@ -3,6 +3,7 @@ package com.danieljm.delijn.ui.components.stopdetails
 import android.util.Log
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -94,7 +95,18 @@ fun BusCard(arrival: ArrivalInfo) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(lineBgColor) // Use dynamic color
+                            // Draw a slight border using the Rand color while keeping the container color as the background
+                            .then(
+                                arrival.lineBackgroundBorderColorHex?.let { hex ->
+                                    try {
+                                        val parsed = Color(AndroidColor.parseColor(hex))
+                                        Modifier.border(width = 1.dp, color = parsed, shape = RoundedCornerShape(8.dp))
+                                    } catch (_: Exception) {
+                                        Modifier
+                                    }
+                                } ?: Modifier
+                            )
+                            .background(lineBgColor) // Use dynamic color (kleurAchterGrond)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(

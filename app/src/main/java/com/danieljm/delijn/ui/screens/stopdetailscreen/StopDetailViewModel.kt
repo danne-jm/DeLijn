@@ -245,7 +245,8 @@ class StopDetailViewModel(
                     if (finalCoords.isNotEmpty()) {
                         // try to extract a color for this line from arrivals cache if available
                         val sampleArrival = _uiState.value.allArrivals.firstOrNull { it.lineId == lijn }
-                        val colorHex = sampleArrival?.lineBackgroundColorHex
+                        // Use the route color (kleurAchterGrondRand) for polylines shown on the map
+                        val colorHex = sampleArrival?.lineRouteColorHex
                         polylines.add(com.danieljm.delijn.domain.model.LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
                     }
                 } catch (_: Exception) {
@@ -402,7 +403,11 @@ class StopDetailViewModel(
             if (searchResult == null) arrival else {
                 arrival.copy(
                     lineNumberPublic = searchResult.lijnNummerPubliek,
+                    // Keep the badge/container color as the original background color
                     lineBackgroundColorHex = searchResult.kleurAchterGrond,
+                    // Expose the Rand color for use as the map polyline and badge border
+                    lineRouteColorHex = searchResult.kleurAchterGrondRand,
+                    lineBackgroundBorderColorHex = searchResult.kleurAchterGrondRand,
                     lineForegroundColorHex = searchResult.kleurVoorGrond,
                     lineForegroundRandColorHex = searchResult.kleurVoorGrondRand
                 )
@@ -438,7 +443,8 @@ class StopDetailViewModel(
                 val finalCoords = routed ?: coords
 
                 if (finalCoords.isNotEmpty()) {
-                    polylines.add(LinePolyline(id = key, coordinates = finalCoords, colorHex = candidate.kleurAchterGrond))
+                    // Use the Rand (border) color for routes on the map
+                    polylines.add(LinePolyline(id = key, coordinates = finalCoords, colorHex = candidate.kleurAchterGrondRand))
                 }
             } catch (_: Exception) {
                 Log.w("StopDetailViewModel", "Failed to fetch haltes for $key")

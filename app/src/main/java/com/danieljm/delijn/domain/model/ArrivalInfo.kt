@@ -24,5 +24,9 @@ data class ArrivalInfo(
     val lineNumberPublic: String? = null,
     val lineBackgroundColorHex: String? = null,
     val lineForegroundColorHex: String? = null,
-    val lineForegroundRandColorHex: String? = null
+    val lineForegroundRandColorHex: String? = null,
+    // Color used specifically for drawing the route/polyline on the map (should be kleurAchterGrondRand)
+    val lineRouteColorHex: String? = null,
+    // Border color to draw around the badge in the UI (we'll use kleurAchterGrondRand for this)
+    val lineBackgroundBorderColorHex: String? = null
 )
