@@ -100,7 +100,7 @@ fun BusCard(arrival: ArrivalInfo) {
                                 arrival.lineBackgroundBorderColorHex?.let { hex ->
                                     try {
                                         val parsed = Color(AndroidColor.parseColor(hex))
-                                        Modifier.border(width = 1.dp, color = parsed, shape = RoundedCornerShape(8.dp))
+                                        Modifier.border(width = 2.dp, color = parsed, shape = RoundedCornerShape(8.dp))
                                     } catch (_: Exception) {
                                         Modifier
                                     }

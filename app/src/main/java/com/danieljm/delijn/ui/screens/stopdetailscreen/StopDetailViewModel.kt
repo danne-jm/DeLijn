@@ -219,7 +219,7 @@ class StopDetailViewModel(
     fun selectLine(lineId: String?) {
         viewModelScope.launch {
             if (lineId == null) {
-                _uiState.value = _uiState.value.copy(selectedLineId = null, selectedPolylines = emptyList(), selectedBusPositions = emptyList())
+                _uiState.value = _uiState.value.copy(selectedLineId = null, selectedPolylines = emptyList(), selectedBusPositions = emptyList(), busVehicleId = null)
                 return@launch
             }
 
@@ -281,6 +281,11 @@ class StopDetailViewModel(
             // Update UI state inside the coroutine so local variables are in scope
             _uiState.value = _uiState.value.copy(selectedLineId = lineId, selectedPolylines = polylines, selectedBusPositions = busPositions)
         }
+    }
+
+    // Allow selecting an individual bus vehicle; if vehicleId==null clear the selection
+    fun selectBus(vehicleId: String?) {
+        _uiState.value = _uiState.value.copy(busVehicleId = vehicleId)
     }
 
     // Merge scheduled and real-time arrival lists:

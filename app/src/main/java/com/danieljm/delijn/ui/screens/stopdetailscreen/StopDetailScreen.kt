@@ -96,9 +96,12 @@ fun StopDetailScreen(
     }
 
     // Create custom markers for buses
-    val busMarkers = remember(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId) {
+    val busMarkers = remember(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId, uiState.busVehicleId) {
+        // choose positions: if a line is selected and we have selectedBusPositions use them, otherwise use global busPositions
         val positions = if (uiState.selectedLineId != null && uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
-        positions.map { bus ->
+        // if user selected an individual vehicle, only show that one
+        val filtered = uiState.busVehicleId?.let { vid -> positions.filter { it.vehicleId == vid } } ?: positions
+        filtered.map { bus ->
             CustomMarker(
                 id = "bus_${bus.vehicleId}",
                 latitude = bus.latitude,
@@ -222,15 +225,76 @@ fun StopDetailScreen(
                 list
             }
 
+            // Compute bus icon entries per line for the expanded selector. Badge numbers correspond to the arrival queue position
+            val itemsIcons = remember(uiState.allArrivals, uiState.selectedBusPositions, uiState.busPositions, uiState.selectedLineId, items) {
+                val map = mutableMapOf<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>()
+
+                // For each line, if it's selected, compute icons for arrivals within the next 45 minutes (sequential badges)
+                val nowMs = System.currentTimeMillis()
+                val windowMs = 45 * 60 * 1000L
+
+                // choose positions to consult for GPS presence: prefer selectedBusPositions if present, else global busPositions
+                val positions = if (uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
+
+                // Pre-group and sort arrivals by arrival time
+                val arrivalsByLine = uiState.allArrivals.groupBy { it.lineId }.mapValues { entry ->
+                    entry.value.sortedWith(compareBy { a ->
+                        val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
+                        if (t > 0L) t else Long.MAX_VALUE
+                    })
+                }
+
+                for (item in items) {
+                    if (item.id == uiState.selectedLineId) {
+                        val arrivalsForLine = arrivalsByLine[item.id] ?: emptyList()
+
+                        // Filter to arrivals within the next 45 minutes
+                        val arrivalsWithinWindow = arrivalsForLine.filter { a ->
+                            val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
+                            t in nowMs..(nowMs + windowMs)
+                        }
+
+                        // Build sequential badges and determine GPS availability per arrival
+                        val icons = arrivalsWithinWindow.mapIndexed { idx, arrival ->
+                            val badge = idx + 1
+                            val vid = arrival.vrtnum
+                            val pos = vid?.let { v -> positions.find { it.vehicleId == v } }
+                            // If we know the vrtnum set it as vehicleId so tapping the icon can select that vehicle later
+                            // hasGps is true only when we found a position for the vrtnum
+                            if (!vid.isNullOrBlank()) {
+                                com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = vid, badge = badge, hasGps = (pos != null))
+                            } else {
+                                // no vrtnum available, show missing GPS icon and no selectable vehicle id
+                                com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = null, badge = badge, hasGps = false)
+                            }
+                        }
+
+                         map[item.id] = icons
+                     } else {
+                         map[item.id] = emptyList()
+                     }
+                 }
+
+                 map.toMap()
+             }
+
             FloatingBusSelectorRow(
                 items = items,
                 selected = uiState.selectedLineId,
+                itemsIcons = itemsIcons,
+                selectedVehicleId = uiState.busVehicleId,
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp),
                 onToggle = { selectedId ->
                     viewModel.selectLine(selectedId)
+                    // clear any individual vehicle selection when selecting a new line
+                    viewModel.selectBus(null)
+                },
+                onBusSelected = { vehicleId ->
+                    // when a vehicle is selected, update view model so the map will show only that vehicle
+                    viewModel.selectBus(vehicleId)
                 }
             )
 
