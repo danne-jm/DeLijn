@@ -3,6 +3,7 @@ package com.danieljm.delijn.ui.components.map
 import android.content.Context
 import android.graphics.Paint
 import android.location.Location
+import android.view.MotionEvent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -94,7 +95,8 @@ fun MapComponent(
     showUserLocationMarker: Boolean = true,
     centerOnStop: Stop? = null,
     mapCenterOffset: Double = 0.0,
-    darkMode: Boolean = false // new parameter to toggle dark tiles
+    darkMode: Boolean = false, // new parameter to toggle dark tiles
+    onUserInteraction: (() -> Unit)? = null // new callback when the user touches/ interacts with the map
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -397,6 +399,16 @@ fun MapComponent(
                     if (mapState.centerLatitude != null && mapState.centerLongitude != null) {
                         controller.setCenter(GeoPoint(mapState.centerLatitude, mapState.centerLongitude))
                     }
+
+                    // Notify about user interaction via touch down so callers can decide to fetch nearby stops
+                    setOnTouchListener { _, event ->
+                        if (event.action == MotionEvent.ACTION_DOWN) {
+                            onUserInteraction?.invoke()
+                        }
+                        // return false so default handling continues
+                        false
+                    }
+
                     mapViewRef = this
                 }
             },

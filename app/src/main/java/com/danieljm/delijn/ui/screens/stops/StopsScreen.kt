@@ -46,6 +46,7 @@ import com.danieljm.delijn.ui.components.map.MapComponent
 import com.danieljm.delijn.ui.components.map.MapState
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import org.koin.androidx.compose.koinViewModel
+import kotlinx.coroutines.delay
 
 @Composable
 fun StopsScreen(
@@ -87,6 +88,11 @@ fun StopsScreen(
 
     val stopsListState = rememberLazyListState()
 
+    // New: whether the user is manually navigating the map (panning/zooming)
+    var userIsNavigatingMap by rememberSaveable { mutableStateOf(false) }
+    // Debounced pending center when user navigates
+    var pendingMapCenter by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+
     // Request permission or location once when the screen is first composed
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
@@ -117,6 +123,21 @@ fun StopsScreen(
         }
     }
 
+    // When the user manually navigates and we get a new pending center, debounce and fetch nearby stops
+    LaunchedEffect(pendingMapCenter) {
+        val center = pendingMapCenter
+        if (center != null) {
+            // debounce so we don't spam API while the user is actively panning
+            delay(700L)
+            // If still the same center after debounce, fetch
+            if (pendingMapCenter == center) {
+                viewModel.fetchNearbyStops(center.first, center.second)
+                // clear pending
+                pendingMapCenter = null
+            }
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -133,14 +154,26 @@ fun StopsScreen(
                     userLocation = userLocation,
                     stops = uiState.nearbyStops,
                     mapState = mapState,
-                    onMapStateChanged = { newState -> mapState = newState },
+                    onMapStateChanged = { newState ->
+                        // Update the UI map state
+                        mapState = newState
+
+                        // If user is navigating the map (they interacted), prepare a debounced fetch for the new center
+                        if (userIsNavigatingMap && newState.centerLatitude != null && newState.centerLongitude != null) {
+                            pendingMapCenter = newState.centerLatitude to newState.centerLongitude
+                        }
+                    },
                     onStopMarkerClick = { stop ->
                         navController.navigate("stopDetail/${stop.id}/${Uri.encode(stop.name)}")
                     },
                     animateToLocation = animateToLocationTrigger,
                     animateToStop = animateToStopTrigger,
                     showUserLocationMarker = true,
-                    darkMode = isSystemInDarkTheme()
+                    darkMode = isSystemInDarkTheme(),
+                    onUserInteraction = {
+                        // User touched the map: switch to navigation mode so that map center drives nearby stop results
+                        userIsNavigatingMap = true
+                    }
                 )
 
                 // Clear animation triggers after they've been processed
@@ -191,6 +224,9 @@ fun StopsScreen(
                 FloatingActionButton(
                     onClick = {
                         if (hasLocationPermission) {
+                            // When user taps the FAB, re-enable following the user and center map on their current location
+                            userIsNavigatingMap = false
+
                             if (userLocation != null) {
                                 animateToLocationTrigger = userLocation
                                 mapState = mapState.copy(
@@ -198,6 +234,8 @@ fun StopsScreen(
                                     centerLongitude = userLocation.longitude,
                                     zoom = 18.0
                                 )
+                                // Also fetch stops for the user's location
+                                viewModel.fetchNearbyStops(userLocation.latitude, userLocation.longitude)
                             } else {
                                 viewModel.startLocationUpdates(context)
                                 pendingCenterOnLocation = true
@@ -226,11 +264,15 @@ fun StopsScreen(
                     userLon = userLocation?.longitude,
                     onHeightChanged = { height -> bottomSheetHeight = height },
                     onStopClick = { stop ->
+                        // When programmatically centering on a stop, disable map-navigation mode so further drag doesn't immediately override
+                        userIsNavigatingMap = false
                         animateToStopTrigger = stop
                         mapState = mapState.copy(
                             centerLatitude = stop.latitude,
                             centerLongitude = stop.longitude
                         )
+                        // Fetch stops around the stop we centered on
+                        viewModel.fetchNearbyStops(stop.latitude, stop.longitude)
                     },
                     isLoading = uiState.isLoading,
                     shouldAnimateRefresh = uiState.shouldAnimateRefresh,
