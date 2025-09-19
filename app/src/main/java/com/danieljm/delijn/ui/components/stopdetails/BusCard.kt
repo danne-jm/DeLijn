@@ -1,7 +1,6 @@
 package com.danieljm.delijn.ui.components.stopdetails
 
 import android.util.Log
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -28,14 +27,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.CloudOff
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.SignalZero
 import com.danieljm.delijn.domain.model.ArrivalInfo
 import kotlin.math.abs
-import androidx.core.graphics.toColorInt
+import android.graphics.Color as AndroidColor
 
 @Composable
 fun BusCard(arrival: ArrivalInfo) {

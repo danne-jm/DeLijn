@@ -14,6 +14,8 @@ import com.danieljm.delijn.domain.usecase.GetLineDirectionStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
 import com.danieljm.delijn.domain.usecase.GetRouteGeometryUseCase
 import com.danieljm.delijn.domain.model.LinePolyline
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,10 +31,13 @@ class StopDetailViewModel(
     private val getVehiclePositionUseCase: GetVehiclePositionUseCase,
     private val getRouteGeometryUseCase: GetRouteGeometryUseCase
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(StopDetailUiState())
-    val uiState: StateFlow<StopDetailUiState> = _uiState
+     private val _uiState = MutableStateFlow(StopDetailUiState())
+     val uiState: StateFlow<StopDetailUiState> = _uiState
     // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
     private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
+
+    // Job used to poll a single selected vehicle position periodically while selected
+    private var selectedVehiclePollJob: Job? = null
 
     fun loadStopDetails(stopId: String, stopName: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId, stopName = stopName)
@@ -204,6 +209,82 @@ class StopDetailViewModel(
                     servedLines = servedLines,
                     lastArrivalsRefreshMillis = System.currentTimeMillis()
                 )
+
+                // If a line is currently selected, refresh its polylines and vehicle positions so the map updates
+                val currentlySelectedLine = _uiState.value.selectedLineId
+                val currentlySelectedVehicle = _uiState.value.busVehicleId
+                if (!currentlySelectedLine.isNullOrBlank()) {
+                    // Refresh polylines and bus positions for the currently selected line inline (synchronously
+                    // inside this coroutine) to avoid racing with the asynchronous selectLine coroutine.
+                    val served = _uiState.value.servedLines.filter { it.lineId == currentlySelectedLine }
+                    val polylines = mutableListOf<com.danieljm.delijn.domain.model.LinePolyline>()
+
+                    for (s in served) {
+                        try {
+                            val ent = s.entiteitnummer ?: continue
+                            val lijn = s.lineId
+                            val richting = s.richting
+                            val resp = try { getLineDirectionStopsUseCase(ent, lijn, richting) } catch (_: Exception) { null }
+                            val coords = resp?.haltes?.map { it.latitude to it.longitude } ?: emptyList()
+                            val routed: List<Pair<Double, Double>>? = try {
+                                if (coords.size >= 2) getRouteGeometryUseCase(coords) else null
+                            } catch (_: Exception) { null }
+                            val finalCoords = routed ?: coords
+                            if (finalCoords.isNotEmpty()) {
+                                val sampleArrival = _uiState.value.allArrivals.firstOrNull { it.lineId == lijn }
+                                val colorHex = sampleArrival?.lineRouteColorHex
+                                polylines.add(com.danieljm.delijn.domain.model.LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
+                            }
+                        } catch (_: Exception) {
+                            // ignore individual failures
+                        }
+                    }
+
+                    // Determine arrivals within the window and fetch their vehicle positions
+                    val nowMs = System.currentTimeMillis()
+                    val windowMs = 45 * 60 * 1000L
+                    val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == currentlySelectedLine }
+                    val arrivalsWithinWindow = arrivalsForLine.filter {
+                        val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
+                        t in nowMs..(nowMs + windowMs)
+                    }
+                    val busPositions = mutableListOf<BusPosition>()
+                    if (arrivalsWithinWindow.isNotEmpty()) {
+                        val toQuery = arrivalsWithinWindow.filter { !it.vrtnum.isNullOrBlank() }
+                        for (a in toQuery) {
+                            try {
+                                val vid = a.vrtnum ?: continue
+                                val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
+                                if (pos != null) {
+                                    busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                                }
+                            } catch (_: Exception) {
+                                // ignore individual failures
+                            }
+                        }
+                    }
+
+                    // Update the UI state with refreshed polylines and positions
+                    _uiState.value = _uiState.value.copy(selectedLineId = currentlySelectedLine, selectedPolylines = polylines, selectedBusPositions = busPositions)
+                }
+
+                // If an individual vehicle is selected, fetch its latest position and update state so the marker moves
+                if (!currentlySelectedVehicle.isNullOrBlank()) {
+                    try {
+                        val pos = try { getVehiclePositionUseCase(currentlySelectedVehicle) } catch (_: Exception) { null }
+                        if (pos != null) {
+                            val bp = BusPosition(currentlySelectedVehicle, pos.latitude, pos.longitude, pos.bearing)
+                            // If a line is selected, show this vehicle in the selectedBusPositions; otherwise update global busPositions
+                            _uiState.value = if (!currentlySelectedLine.isNullOrBlank()) {
+                                _uiState.value.copy(selectedBusPositions = listOf(bp))
+                            } else {
+                                _uiState.value.copy(busPositions = listOf(bp))
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // ignore failures to refresh a single vehicle position
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("StopDetailViewModel", "Error during arrivals refresh", e)
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
@@ -219,6 +300,9 @@ class StopDetailViewModel(
     fun selectLine(lineId: String?) {
         viewModelScope.launch {
             if (lineId == null) {
+                // clear selection and cancel any per-vehicle polling
+                selectedVehiclePollJob?.cancel()
+                selectedVehiclePollJob = null
                 _uiState.value = _uiState.value.copy(selectedLineId = null, selectedPolylines = emptyList(), selectedBusPositions = emptyList(), busVehicleId = null)
                 return@launch
             }
@@ -285,7 +369,43 @@ class StopDetailViewModel(
 
     // Allow selecting an individual bus vehicle; if vehicleId==null clear the selection
     fun selectBus(vehicleId: String?) {
+        // update selected vehicle id in state
         _uiState.value = _uiState.value.copy(busVehicleId = vehicleId)
+
+        // Cancel any previous polling job
+        selectedVehiclePollJob?.cancel()
+        selectedVehiclePollJob = null
+
+        // If a vehicle was selected, start a polling job to refresh its position periodically
+        if (!vehicleId.isNullOrBlank()) {
+            selectedVehiclePollJob = viewModelScope.launch {
+                while (true) {
+                    try {
+                        val pos = try { getVehiclePositionUseCase(vehicleId) } catch (_: Exception) { null }
+                        if (pos != null) {
+                            val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
+                            // If a line is currently selected, update selectedBusPositions, otherwise update global busPositions
+                            val currentLine = _uiState.value.selectedLineId
+                            _uiState.value = if (!currentLine.isNullOrBlank()) {
+                                _uiState.value.copy(selectedBusPositions = listOf(bp))
+                            } else {
+                                _uiState.value.copy(busPositions = listOf(bp))
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // ignore per-iteration failures
+                    }
+                    // Poll interval (e.g., 10 seconds)
+                    delay(10_000L)
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        selectedVehiclePollJob?.cancel()
+        selectedVehiclePollJob = null
+        super.onCleared()
     }
 
     // Merge scheduled and real-time arrival lists:
