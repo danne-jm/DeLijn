@@ -1,11 +1,10 @@
 package com.danieljm.delijn.ui.components.stopdetails
 
-import android.graphics.Color as AndroidColor
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -27,17 +25,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.times
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.Lucide
-import com.danieljm.delijn.R
+import androidx.core.graphics.toColorInt
 
 /**
  * Floating selector row for bus lines at a stop.
@@ -65,8 +61,6 @@ data class BusIconEntry(
     val hasGps: Boolean
 )
 
-// Replace the entire FloatingBusSelectorRow content in FloatingBusSelector.kt:
-
 @Composable
 fun FloatingBusSelectorRow(
     items: List<FloatingBusItem>,
@@ -80,6 +74,7 @@ fun FloatingBusSelectorRow(
     if (items.isEmpty()) return
 
     val scroll = rememberScrollState()
+    val isToggleable = items.size > 1
 
     Row(
         modifier = modifier
@@ -92,29 +87,29 @@ fun FloatingBusSelectorRow(
         items.forEach { item ->
             val isSelected = selected != null && selected == item.id
 
-            val bgColor = try { item.bgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color(0xFF4CAF50) } catch (_: Exception) { Color(0xFF4CAF50) }
-            val fgColor = try { item.fgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color.Black } catch (_: Exception) { Color.Black }
-            val borderColor = try { item.borderHex?.let { Color(AndroidColor.parseColor(it)) } } catch (_: Exception) { null }
+            val bgColor = try { item.bgHex?.let { Color(it.toColorInt()) } ?: Color(0xFF4CAF50) } catch (_: Exception) { Color(0xFF4CAF50) }
+            val fgColor = try { item.fgHex?.let { Color(it.toColorInt()) } ?: Color.Black } catch (_: Exception) { Color.Black }
+            val borderColor = try { item.borderHex?.let { Color(it.toColorInt()) } } catch (_: Exception) { null }
 
-            val containerColor = if (isSelected) bgColor else bgColor.copy(alpha = 0.35f)
-            val textColor = if (isSelected) fgColor else fgColor.copy(alpha = 0.6f)
+            val containerColor = if (isSelected || !isToggleable) bgColor else bgColor.copy(alpha = 0.35f)
+            val textColor = if (isSelected || !isToggleable) fgColor else fgColor.copy(alpha = 0.6f)
 
             val icons = itemsIcons[item.id] ?: emptyList()
 
-            // Calculate minimum width needed for departed badges
-            val minWidthForDeparted = if (icons.any { it.badge == "Departed" }) {
-                // Line text width + some padding + (number of departed * wider badge width)
+            // Calculate minimum width needed for departed badges. Produce a Modifier (width or wrapContentWidth).
+            val widthModifier = if (icons.any { it.badge == "Departed" }) {
                 val departedCount = icons.count { it.badge == "Departed" }
                 val baseWidth = 60.dp // Minimum for line text
-                val departedBadgeSpace = departedCount * 70.dp // Extra space per departed badge
-                val otherIconsSpace = (icons.size - departedCount) * 40.dp // Regular icons
-                baseWidth + departedBadgeSpace + otherIconsSpace + 8.dp // padding
+                // multiply Dp by Int (Dp * Int) so expressions type-check
+                val departedBadgeSpace = 70.dp * departedCount // Extra space per departed badge
+                val otherIconsSpace = 40.dp * (icons.size - departedCount) // Regular icons
+                Modifier.width(baseWidth + departedBadgeSpace + otherIconsSpace + 8.dp)
             } else {
                 Modifier.wrapContentWidth()
             }
 
             var itemModifier = Modifier
-                .then(if (minWidthForDeparted is Dp) Modifier.width(minWidthForDeparted) else Modifier.wrapContentWidth())
+                .then(widthModifier)
                 .height(40.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(containerColor)
@@ -123,10 +118,13 @@ fun FloatingBusSelectorRow(
                 itemModifier = itemModifier.then(Modifier.border(width = 3.dp, color = borderColor, shape = RoundedCornerShape(8.dp)))
             }
 
-            itemModifier = itemModifier
-                .clickable(onClick = {
+            if (isToggleable) {
+                itemModifier = itemModifier.clickable(onClick = {
                     if (isSelected) onToggle(null) else onToggle(item.id)
                 })
+            }
+
+            itemModifier = itemModifier
                 .padding(horizontal = 12.dp)
                 .animateContentSize()
 
@@ -146,10 +144,9 @@ fun FloatingBusSelectorRow(
                         modifier = Modifier.align(Alignment.CenterVertically)
                     )
 
-                    if (isSelected && icons.isNotEmpty()) {
+                    // Show icons when either this line is selected OR when no line is selected (show all by default)
+                    if ((selected == null || isSelected || !isToggleable) && icons.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            // Replace the bus icon rendering section in FloatingBusSelector.kt:
-
                             icons.forEach { iconEntry ->
                                 val isThisVehicleSelected = iconEntry.vehicleId != null && selectedVehicleId != null && selectedVehicleId == iconEntry.vehicleId
 
@@ -158,7 +155,7 @@ fun FloatingBusSelectorRow(
                                 val badgeWidth = if (isDeparted) 64.dp else 18.dp
                                 val badgeHeight = if (isDeparted) 20.dp else 18.dp
 
-                                val innerClickable = iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()
+                                val innerClickable = (iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()) || isThisVehicleSelected
                                 var iconBoxModifier = Modifier
                                     .size(containerSize)
                                     .clip(RoundedCornerShape(8.dp))
@@ -168,6 +165,13 @@ fun FloatingBusSelectorRow(
                                     iconBoxModifier = iconBoxModifier.clickable(onClick = {
                                         if (isThisVehicleSelected) onBusSelected(null) else onBusSelected(iconEntry.vehicleId)
                                     })
+                                } else {
+                                    // Consume taps on non-clickable icons so they don't fall through to the parent and toggle the row
+                                    iconBoxModifier = iconBoxModifier.pointerInput(Unit) {
+                                        detectTapGestures(onTap = {
+                                            // intentionally empty: consume the tap and do nothing
+                                        })
+                                    }
                                 }
 
                                 Box(modifier = iconBoxModifier) {
@@ -180,7 +184,6 @@ fun FloatingBusSelectorRow(
                                             .align(Alignment.Center)
                                     )
 
-                                    // Fix: Adjust badge alignment based on whether it's a single departed item
                                     val badgeAlignment = Alignment.CenterEnd
 
                                     Surface(

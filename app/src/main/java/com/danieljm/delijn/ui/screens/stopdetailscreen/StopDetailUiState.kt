@@ -2,6 +2,8 @@ package com.danieljm.delijn.ui.screens.stopdetailscreen
 
 import com.danieljm.delijn.domain.model.ArrivalInfo
 import com.danieljm.delijn.domain.model.ServedLine
+import com.danieljm.delijn.ui.components.stopdetails.BusIconEntry
+import com.danieljm.delijn.ui.components.stopdetails.FloatingBusItem
 
 data class BusPosition(
     val vehicleId: String,
@@ -37,5 +39,8 @@ data class StopDetailUiState(
     // Set of vehicleIds for which we've observed GPS positions recently (helps avoid flicker)
     val vehiclesWithGps: Set<String> = emptySet(),
     // Polylines representing line directions to draw on the map
-    val polylines: List<com.danieljm.delijn.domain.model.LinePolyline> = emptyList()
+    val polylines: List<com.danieljm.delijn.domain.model.LinePolyline> = emptyList(),
+    // Precomputed floating bus selector data (kept in viewmodel to synchronize map + bottom sheet)
+    val floatingBusItems: List<FloatingBusItem> = emptyList(),
+    val floatingBusIcons: Map<String, List<BusIconEntry>> = emptyMap()
 )

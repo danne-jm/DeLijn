@@ -20,6 +20,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+// Import types used by the floating selector UI
+import com.danieljm.delijn.ui.components.stopdetails.FloatingBusItem
+import com.danieljm.delijn.ui.components.stopdetails.BusIconEntry
+
 class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
     private val getLineDirectionsForStopUseCase: GetLineDirectionsForStopUseCase,
@@ -99,6 +103,33 @@ class StopDetailViewModel(
                         }
                     }
 
+                    // Determine arrivals within the time window and attempt to seed initial busPositions so the
+                    // floating selector can show accurate hasGps/departed state immediately on first open.
+                    val nowMs = System.currentTimeMillis()
+                    val windowMs = 45 * 60 * 1000L
+                    val recentPastMs = 2 * 60 * 1000L
+                    val arrivalsWithinWindowAll = filtered.filter { a ->
+                        val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
+                        t in (nowMs - recentPastMs)..(nowMs + windowMs)
+                    }
+
+                    val initialBusPositions = mutableListOf<BusPosition>()
+                    if (arrivalsWithinWindowAll.isNotEmpty()) {
+                        val toQuery = arrivalsWithinWindowAll.mapNotNull { it.vrtnum }.distinct()
+                        for (vid in toQuery) {
+                            try {
+                                val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
+                                if (pos != null) {
+                                    initialBusPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                                }
+                            } catch (_: Exception) {
+                                // ignore individual failures
+                            }
+                        }
+                    }
+
+                    // Update UI state with initial positions and vehiclesWithGps set based on what we fetched
+                    val fetchedIds = initialBusPositions.map { it.vehicleId }.toSet()
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stopName,
@@ -106,7 +137,21 @@ class StopDetailViewModel(
                         allArrivals = filtered,
                         lastArrivalsRefreshMillis = System.currentTimeMillis(),
                         stopLatitude = stop.latitude,
-                        stopLongitude = stop.longitude
+                        stopLongitude = stop.longitude,
+                        busPositions = initialBusPositions,
+                        vehiclesWithGps = _uiState.value.vehiclesWithGps + fetchedIds
+                    )
+
+                    // Compute initial floating bus selector data using the positions we just fetched so UI shows accurate GPS flags
+                    val (floatingBusItems, floatingBusIcons) = computeFloatingBusSelectorData(
+                        arrivals = filtered,
+                        allBusPositions = initialBusPositions,
+                        vehiclesWithGps = _uiState.value.vehiclesWithGps + fetchedIds,
+                        selectedLineId = null
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        floatingBusItems = floatingBusItems,
+                        floatingBusIcons = floatingBusIcons
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -210,96 +255,16 @@ class StopDetailViewModel(
                     lastArrivalsRefreshMillis = System.currentTimeMillis()
                 )
 
-                // If a line is currently selected, refresh its polylines and vehicle positions so the map updates
-                val currentlySelectedLine = _uiState.value.selectedLineId
-                val currentlySelectedVehicle = _uiState.value.busVehicleId
-                if (!currentlySelectedLine.isNullOrBlank()) {
-                    // Refresh polylines and bus positions for the currently selected line inline (synchronously
-                    // inside this coroutine) to avoid racing with the asynchronous selectLine coroutine.
-                    val served = _uiState.value.servedLines.filter { it.lineId == currentlySelectedLine }
-                    val polylines = mutableListOf<com.danieljm.delijn.domain.model.LinePolyline>()
-
-                    for (s in served) {
-                        try {
-                            val ent = s.entiteitnummer ?: continue
-                            val lijn = s.lineId
-                            val richting = s.richting
-                            val resp = try { getLineDirectionStopsUseCase(ent, lijn, richting) } catch (_: Exception) { null }
-                            val coords = resp?.haltes?.map { it.latitude to it.longitude } ?: emptyList()
-                            val routed: List<Pair<Double, Double>>? = try {
-                                if (coords.size >= 2) getRouteGeometryUseCase(coords) else null
-                            } catch (_: Exception) { null }
-                            val finalCoords = routed ?: coords
-                            if (finalCoords.isNotEmpty()) {
-                                val sampleArrival = _uiState.value.allArrivals.firstOrNull { it.lineId == lijn }
-                                val colorHex = sampleArrival?.lineRouteColorHex
-                                polylines.add(com.danieljm.delijn.domain.model.LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
-                            }
-                        } catch (_: Exception) {
-                            // ignore individual failures
-                        }
-                    }
-
-                    // Determine arrivals within the window and fetch their vehicle positions
-                    val nowMs = System.currentTimeMillis()
-                    val windowMs = 45 * 60 * 1000L
-                    val recentPastMs = 2 * 60 * 1000L
-                    val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == currentlySelectedLine }
-                    val arrivalsWithinWindow = arrivalsForLine.filter {
-                        val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
-                        // include arrivals that occurred up to recentPastMs ago, and upcoming arrivals within windowMs
-                        t in (nowMs - recentPastMs)..(nowMs + windowMs)
-                    }
-                    val busPositions = mutableListOf<BusPosition>()
-                    if (arrivalsWithinWindow.isNotEmpty()) {
-                        val toQuery = arrivalsWithinWindow.filter { !it.vrtnum.isNullOrBlank() }
-                        for (a in toQuery) {
-                            try {
-                                val vid = a.vrtnum ?: continue
-                                val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
-                                if (pos != null) {
-                                    busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
-                                }
-                            } catch (_: Exception) {
-                                // ignore individual failures
-                            }
-                        }
-                    }
-
-                    // Update the UI state with refreshed polylines and positions
-                    val currentVehicles = _uiState.value.vehiclesWithGps
-                    val fetchedIds = busPositions.map { it.vehicleId }.toSet()
-                    val newVehicles = currentVehicles + fetchedIds
-                    Log.d("StopDetailViewModel", "refresh: selectedLine=$currentlySelectedLine fetchedIds=$fetchedIds vehiclesWithGps(before)=$currentVehicles vehiclesWithGps(after)=$newVehicles")
-                    _uiState.value = _uiState.value.copy(
-                        selectedLineId = currentlySelectedLine,
-                        selectedPolylines = polylines,
-                        selectedBusPositions = busPositions,
-                        vehiclesWithGps = newVehicles
-                    )
-                }
-
-                // If an individual vehicle is selected, fetch its latest position and update state so the marker moves
-                // Do NOT overwrite the global busPositions list — always update selectedBusPositions so we don't remove
-                // other known positions used for icon GPS detection. The map display logic will still filter markers
-                // by busVehicleId when needed.
-                if (!currentlySelectedVehicle.isNullOrBlank()) {
-                    try {
-                        val pos = try { getVehiclePositionUseCase(currentlySelectedVehicle) } catch (_: Exception) { null }
-                        if (pos != null) {
-                            val bp = BusPosition(currentlySelectedVehicle, pos.latitude, pos.longitude, pos.bearing)
-                            // Merge the selected vehicle position into selectedBusPositions rather than overwriting
-                            // This preserves other vehicles' positions (used to determine GPS availability for icons)
-                            val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
-                            Log.d("StopDetailViewModel", "refresh: updated selectedBusPositions for vehicle=${bp.vehicleId}; selectedCount=${merged.size}")
-                            _uiState.value = _uiState.value.copy(selectedBusPositions = merged, vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId))
-                        }
-                    } catch (_: Exception) {
-                        // ignore failures to refresh a single vehicle position
-                    }
-                }
+                // Recompute floating selector data after arrivals refresh using current known bus positions
+                val allBusPositionsAfterRefresh = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+                val (refItems, refIcons) = computeFloatingBusSelectorData(
+                    arrivals = filtered,
+                    allBusPositions = allBusPositionsAfterRefresh,
+                    vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                    selectedLineId = _uiState.value.selectedLineId
+                )
+                _uiState.value = _uiState.value.copy(floatingBusItems = refItems, floatingBusIcons = refIcons)
             } catch (e: Exception) {
-                Log.e("StopDetailViewModel", "Error during arrivals refresh", e)
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
             }
         }
@@ -321,7 +286,7 @@ class StopDetailViewModel(
             }
 
             val served = _uiState.value.servedLines.filter { it.lineId == lineId }
-            val polylines = mutableListOf<com.danieljm.delijn.domain.model.LinePolyline>()
+            val polylines = mutableListOf<LinePolyline>()
 
             // Fetch polylines for all directions of the selected line
             for (s in served) {
@@ -344,7 +309,7 @@ class StopDetailViewModel(
                         val sampleArrival = _uiState.value.allArrivals.firstOrNull { it.lineId == lijn }
                         // Use the route color (kleurAchterGrondRand) for polylines shown on the map
                         val colorHex = sampleArrival?.lineRouteColorHex
-                        polylines.add(com.danieljm.delijn.domain.model.LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
+                        polylines.add(LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
                     }
                 } catch (_: Exception) {
                     // ignore individual failures
@@ -377,8 +342,27 @@ class StopDetailViewModel(
                 }
             }
 
-            // Update UI state inside the coroutine so local variables are in scope
-            _uiState.value = _uiState.value.copy(selectedLineId = lineId, selectedPolylines = polylines, selectedBusPositions = busPositions)
+            // Update the UI state with refreshed polylines and positions
+            val currentVehicles = _uiState.value.vehiclesWithGps
+            val fetchedIds = busPositions.map { it.vehicleId }.toSet()
+            val newVehicles = currentVehicles + fetchedIds
+            Log.d("StopDetailViewModel", "refresh: selectedLine=$lineId fetchedIds=$fetchedIds vehiclesWithGps(before)=$currentVehicles vehiclesWithGps(after)=$newVehicles")
+            _uiState.value = _uiState.value.copy(
+                selectedLineId = lineId,
+                selectedPolylines = polylines,
+                selectedBusPositions = busPositions,
+                vehiclesWithGps = newVehicles
+            )
+
+            // Recompute floating selector after we fetched positions for the selected line
+            val allBusPositionsNow = (_uiState.value.busPositions + busPositions + _uiState.value.selectedBusPositions).distinctBy { it.vehicleId }
+            val (selItems, selIcons) = computeFloatingBusSelectorData(
+                arrivals = _uiState.value.allArrivals,
+                allBusPositions = allBusPositionsNow,
+                vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                selectedLineId = _uiState.value.selectedLineId
+            )
+            _uiState.value = _uiState.value.copy(floatingBusItems = selItems, floatingBusIcons = selIcons)
         }
     }
 
@@ -393,10 +377,36 @@ class StopDetailViewModel(
         selectedVehiclePollJob?.cancel()
         selectedVehiclePollJob = null
 
+        // If clearing selection, make sure we also clear any selectedBusPositions so the map shows all buses again
+        if (vehicleId == null) {
+            _uiState.value = _uiState.value.copy(selectedBusPositions = emptyList())
+
+            // Recompute floating selector to show all buses again
+            val allBusPos = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+            val (clearItems, clearIcons) = computeFloatingBusSelectorData(
+                arrivals = _uiState.value.allArrivals,
+                allBusPositions = allBusPos,
+                vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                selectedLineId = _uiState.value.selectedLineId
+            )
+            _uiState.value = _uiState.value.copy(floatingBusItems = clearItems, floatingBusIcons = clearIcons)
+            return
+        }
+
         // Try to seed selectedBusPositions immediately from any already-known positions (global or previous selected)
         val existing = (_uiState.value.busPositions + _uiState.value.selectedBusPositions).find { it.vehicleId == vehicleId }
         if (existing != null) {
             _uiState.value = _uiState.value.copy(selectedBusPositions = listOf(existing))
+
+            // Recompute floating selector to reflect the selection immediately
+            val allBusPosNow = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+            val (selItems2, selIcons2) = computeFloatingBusSelectorData(
+                arrivals = _uiState.value.allArrivals,
+                allBusPositions = allBusPosNow,
+                vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                selectedLineId = _uiState.value.selectedLineId
+            )
+            _uiState.value = _uiState.value.copy(floatingBusItems = selItems2, floatingBusIcons = selIcons2)
         }
 
         // If a vehicle was selected, mark it as having GPS and start polling
@@ -405,6 +415,16 @@ class StopDetailViewModel(
             val currentVehicles = _uiState.value.vehiclesWithGps
             val newVehicles = currentVehicles + setOf(vehicleId)
             _uiState.value = _uiState.value.copy(vehiclesWithGps = newVehicles)
+
+            // Recompute selector to immediately mark this vehicle as having GPS
+            val allBusPosThen = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+            val (imItems, imIcons) = computeFloatingBusSelectorData(
+                arrivals = _uiState.value.allArrivals,
+                allBusPositions = allBusPosThen,
+                vehiclesWithGps = newVehicles,
+                selectedLineId = _uiState.value.selectedLineId
+            )
+            _uiState.value = _uiState.value.copy(floatingBusItems = imItems, floatingBusIcons = imIcons)
 
             selectedVehiclePollJob = viewModelScope.launch {
                 // Immediate position fetch
@@ -417,6 +437,16 @@ class StopDetailViewModel(
                             selectedBusPositions = merged,
                             vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId)
                         )
+
+                        // Recompute after we fetched the immediate vehicle position
+                        val allBusPosAfter = _uiState.value.busPositions + _uiState.value.selectedBusPositions
+                        val (pollItems, pollIcons) = computeFloatingBusSelectorData(
+                            arrivals = _uiState.value.allArrivals,
+                            allBusPositions = allBusPosAfter,
+                            vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                            selectedLineId = _uiState.value.selectedLineId
+                        )
+                        _uiState.value = _uiState.value.copy(floatingBusItems = pollItems, floatingBusIcons = pollIcons)
                     }
                 } catch (_: Exception) {
                     // ignore initial fetch failure
@@ -447,6 +477,72 @@ class StopDetailViewModel(
         selectedVehiclePollJob?.cancel()
         selectedVehiclePollJob = null
         super.onCleared()
+    }
+
+    // Compute the floating selector data (items + per-line icons) from arrivals and known bus positions
+    private fun computeFloatingBusSelectorData(
+        arrivals: List<com.danieljm.delijn.domain.model.ArrivalInfo>,
+        allBusPositions: List<BusPosition>,
+        vehiclesWithGps: Set<String>,
+        selectedLineId: String?
+    ): Pair<List<FloatingBusItem>, Map<String, List<BusIconEntry>>> {
+        if (arrivals.isEmpty()) return Pair(emptyList(), emptyMap())
+
+        val nowMs = System.currentTimeMillis()
+        val windowMs = 45 * 60 * 1000L
+        val recentPastMs = 2 * 60 * 1000L
+
+        // Build items grouped by lineId
+        val byLine = arrivals.groupBy { it.lineId }
+        val items = mutableListOf<FloatingBusItem>()
+        val iconsMap = mutableMapOf<String, List<BusIconEntry>>()
+
+        for ((lineId, arrs) in byLine) {
+            val a = arrs.first()
+            items.add(
+                FloatingBusItem(
+                    id = lineId,
+                    displayText = a.lineNumberPublic ?: lineId,
+                    bgHex = a.lineBackgroundColorHex,
+                    fgHex = a.lineForegroundColorHex,
+                    borderHex = a.lineBackgroundBorderColorHex
+                )
+            )
+
+            // Prepare icons for upcoming arrivals within window (and a small recent past)
+            val iconsForLine = arrs
+                .filter { arrival ->
+                    val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
+                    // keep unknown timestamps as well
+                    if (t <= 0L) return@filter true
+                    t in (nowMs - recentPastMs)..(nowMs + windowMs)
+                }
+                .sortedWith(compareBy { a ->
+                    when {
+                        a.realArrivalTime > 0L -> a.realArrivalTime
+                        a.expectedArrivalTime > 0L -> a.expectedArrivalTime
+                        else -> Long.MAX_VALUE
+                    }
+                })
+                .map { arrival ->
+                    val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
+                    val badge = if (t <= 0L) {
+                        "?"
+                    } else {
+                        val minutes = ((t - nowMs) / 60_000L).toInt()
+                        if (minutes < 0) "Departed" else minutes.toString()
+                    }
+                    val vid = arrival.vrtnum
+                    val hasGps = !vid.isNullOrBlank() && (vehiclesWithGps.contains(vid) || allBusPositions.any { it.vehicleId == vid })
+                    BusIconEntry(vehicleId = vid, badge = badge, hasGps = hasGps)
+                }
+
+            iconsMap[lineId] = iconsForLine
+        }
+
+        // Also include any servedLines that may not appear in arrivals? (Keep it simple: items only derived from arrivals)
+
+        return Pair(items, iconsMap)
     }
 
     // Merge scheduled and real-time arrival lists:
