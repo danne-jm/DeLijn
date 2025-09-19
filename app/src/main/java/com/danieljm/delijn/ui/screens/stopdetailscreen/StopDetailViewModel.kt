@@ -195,7 +195,7 @@ class StopDetailViewModel(
 
                 // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
                 // but keep arrivals with unknown timestamps.
-                val twoMinutesMs = 10 * 60 * 1000L
+                val twoMinutesMs = 2 * 60 * 1000L
                 val cutoff = System.currentTimeMillis() - twoMinutesMs
                 val filtered = enriched.filter { arrival ->
                     val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
@@ -243,10 +243,12 @@ class StopDetailViewModel(
                     // Determine arrivals within the window and fetch their vehicle positions
                     val nowMs = System.currentTimeMillis()
                     val windowMs = 45 * 60 * 1000L
+                    val recentPastMs = 2 * 60 * 1000L
                     val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == currentlySelectedLine }
                     val arrivalsWithinWindow = arrivalsForLine.filter {
                         val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
-                        t in nowMs..(nowMs + windowMs)
+                        // include arrivals that occurred up to recentPastMs ago, and upcoming arrivals within windowMs
+                        t in (nowMs - recentPastMs)..(nowMs + windowMs)
                     }
                     val busPositions = mutableListOf<BusPosition>()
                     if (arrivalsWithinWindow.isNotEmpty()) {
@@ -352,10 +354,12 @@ class StopDetailViewModel(
             // Determine if this line has any upcoming arrivals within the 45-minute window — only then request GPS positions
             val nowMs = System.currentTimeMillis()
             val windowMs = 45 * 60 * 1000L
+            val recentPastMs = 2 * 60 * 1000L
             val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == lineId }
             val arrivalsWithinWindow = arrivalsForLine.filter {
                 val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
-                t in nowMs..(nowMs + windowMs)
+                // include arrivals that occurred up to recentPastMs ago, and upcoming arrivals within windowMs
+                t in (nowMs - recentPastMs)..(nowMs + windowMs)
             }
             val busPositions = mutableListOf<BusPosition>()
             if (arrivalsWithinWindow.isNotEmpty()) {

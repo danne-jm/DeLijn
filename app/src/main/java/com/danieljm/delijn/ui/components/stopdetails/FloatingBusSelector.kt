@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -54,10 +56,10 @@ data class FloatingBusItem(
     val borderHex: String?
 )
 
-// Represents a bus icon entry for the expanded selector: optional vehicleId + badge (1-based queue index) + GPS flag
+// Represents a bus icon entry for the expanded selector: optional vehicleId + badge (string, supports "X") + GPS flag
 data class BusIconEntry(
     val vehicleId: String?,
-    val badge: Int,
+    val badge: String,
     val hasGps: Boolean
 )
 
@@ -140,11 +142,16 @@ fun FloatingBusSelectorRow(
                     if (isSelected && icons.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             icons.forEach { iconEntry ->
-                                // Each icon shows either a bus icon (GPS) or a bus_missing drawable (no GPS), with a small centered badge
+                                // Each icon shows bus front icon regardless of GPS, with a small centered badge
                                 val isThisVehicleSelected = iconEntry.vehicleId != null && selectedVehicleId != null && selectedVehicleId == iconEntry.vehicleId
 
+                                val isDeparted = iconEntry.badge == "Departed"
+                                val containerSize = if (isDeparted) 44.dp else 36.dp
+                                val badgeWidth = if (isDeparted) 64.dp else 18.dp
+                                val badgeHeight = if (isDeparted) 20.dp else 18.dp
+
                                 Box(modifier = Modifier
-                                    .size(36.dp)
+                                    .size(containerSize)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isThisVehicleSelected) fgColor.copy(alpha = 0.12f) else Color.Transparent)
                                     .clickable(onClick = {
@@ -157,38 +164,38 @@ fun FloatingBusSelectorRow(
                                         }
                                     })
                                 ) {
-                                    if (iconEntry.hasGps) {
-                                        Icon(
-                                            imageVector = Lucide.BusFront,
-                                            contentDescription = "bus icon",
-                                            tint = fgColor,
-                                            modifier = Modifier
-                                                .size(20.dp)
-                                                .align(Alignment.Center)
-                                        )
-                                    } else {
-                                        Image(
-                                            painter = painterResource(id = R.drawable.bus_missing),
-                                            contentDescription = "bus missing gps",
-                                            modifier = Modifier
-                                                .size(20.dp)
-                                                .align(Alignment.Center)
-                                        )
-                                    }
+                                    // Always show bus front icon (same for GPS-missing and GPS-available)
+                                    Icon(
+                                        imageVector = Lucide.BusFront,
+                                        contentDescription = "bus icon",
+                                        tint = fgColor,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .align(Alignment.Center)
+                                    )
 
-                                    // badge in top-right corner, use size and center text vertically+horizontally
+                                    // badge in top-right corner; for Departed entries make it wider
                                     Surface(
                                         modifier = Modifier
                                             .align(Alignment.CenterEnd)
-                                            .size(18.dp),
+                                            .width(badgeWidth)
+                                            .height(badgeHeight),
                                         shape = RoundedCornerShape(8.dp),
                                         color = Color.Black.copy(alpha = 0.85f)
                                     ) {
-                                        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                                        val badgeInnerPadding = if (isDeparted) 6.dp else 0.dp
+
+                                        Box(
+                                            modifier = Modifier
+                                                .width(badgeWidth)
+                                                .height(badgeHeight)
+                                                .padding(horizontal = badgeInnerPadding),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Text(
-                                                text = iconEntry.badge.toString(),
+                                                text = iconEntry.badge,
                                                 color = Color.White,
-                                                fontSize = 10.sp,
+                                                fontSize = if (isDeparted) 10.sp else 10.sp,
                                                 textAlign = TextAlign.Center,
                                                 maxLines = 1,
                                                 style = TextStyle(lineHeight = 12.sp)
