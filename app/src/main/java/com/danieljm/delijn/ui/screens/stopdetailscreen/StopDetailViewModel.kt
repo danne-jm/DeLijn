@@ -17,7 +17,6 @@ import com.danieljm.delijn.domain.model.LinePolyline
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlin.system.*
 
 class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
@@ -34,24 +33,6 @@ class StopDetailViewModel(
     val uiState: StateFlow<StopDetailUiState> = _uiState
     // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
     private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
-
-    private suspend fun fetchAllBusPositions(arrivals: List<com.danieljm.delijn.domain.model.ArrivalInfo>): List<BusPosition> {
-        val positions = mutableListOf<BusPosition>()
-        for (arrival in arrivals) {
-            val vehicleId = arrival.vrtnum
-            if (!vehicleId.isNullOrEmpty()) {
-                try {
-                    val pos = getVehiclePositionUseCase(vehicleId)
-                    if (pos != null) {
-                        positions.add(BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing))
-                    }
-                } catch (e: Exception) {
-                    Log.w("StopDetailViewModel", "Failed to fetch vehicle position for $vehicleId", e)
-                }
-            }
-        }
-        return positions
-    }
 
     fun loadStopDetails(stopId: String, stopName: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, stopId = stopId, stopName = stopName)
@@ -74,9 +55,7 @@ class StopDetailViewModel(
                     // Fetch both scheduled and real-time arrivals, then merge them according to rules:
                     // - Only include arrivals within the next 90 minutes
                     // - For duplicates, prefer real-time arrival data (replace scheduled)
-                    val nowMs = System.currentTimeMillis()
-                    val windowMs = 90 * 60 * 1000L // 90 minutes
-
+                    // window variables are not needed here; arrivals are filtered later
                     val scheduledArrivals = try {
                         Log.i("StopDetailViewModel", "Fetching scheduled arrivals for stop ${stop.entiteitnummer}/${stop.halteNummer}")
                         getScheduledArrivalsUseCase(stop.entiteitnummer, stop.halteNummer, servedLines)
@@ -106,9 +85,9 @@ class StopDetailViewModel(
                     val cutoff = System.currentTimeMillis() - tenMinutesMs
                     val filtered = enriched.filter { arrival ->
                         val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
-                        // If we have a timestamp, exclude it when it is strictly less than cutoff (i.e., arrived 10+ minutes ago)
+                        // If we have a timestamp, exclude arrivals that are 10 minutes old or older (strictly greater-than cutoff required to keep)
                         if (t > 0L) {
-                            t >= cutoff
+                            t > cutoff
                         } else {
                             // unknown timestamp: keep it
                             true
@@ -190,9 +169,6 @@ class StopDetailViewModel(
                 }
 
                 // Fetch live arrivals
-                val nowMs = System.currentTimeMillis()
-                val windowMs = 90 * 60 * 1000L
-
                 val scheduledArrivals = try {
                     getScheduledArrivalsUseCase(entiteitnummer, halteNummer, servedLines)
                 } catch (_: Exception) {
@@ -218,7 +194,7 @@ class StopDetailViewModel(
                 val cutoff = System.currentTimeMillis() - tenMinutesMs
                 val filtered = enriched.filter { arrival ->
                     val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
-                    if (t > 0L) t >= cutoff else true
+                    if (t > 0L) t > cutoff else true
                 }
 
                 // Do not update global polylines/busPositions on refresh; keep map empty until user selects a line
@@ -277,9 +253,9 @@ class StopDetailViewModel(
                 }
             }
 
-            // Determine if this line has any upcoming arrivals within the 90-minute window — only then request GPS positions
+            // Determine if this line has any upcoming arrivals within the 45-minute window — only then request GPS positions
             val nowMs = System.currentTimeMillis()
-            val windowMs = 90 * 60 * 1000L
+            val windowMs = 45 * 60 * 1000L
             val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == lineId }
             val arrivalsWithinWindow = arrivalsForLine.filter {
                 val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
@@ -296,7 +272,7 @@ class StopDetailViewModel(
                             busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
                         }
                     } catch (_: Exception) {
-                        // ignore
+                        // ignore individual failures
                     }
                 }
             }
@@ -347,7 +323,12 @@ class StopDetailViewModel(
         if (arrivals.isEmpty()) return arrivals
 
         val cache = lineDetailCache
-        if (forceRefresh) cache.clear()
+        // Do NOT clear the cache on forced refresh. Clearing the cache and then
+        // attempting fresh network requests for every arrival can cause transient
+        // failures (rate limits, network errors) to remove previously successful
+        // enrichments and result in UI losing colors/public names. Instead, when
+        // forceRefresh is requested, try to fetch fresh data but fall back to any
+        // previously cached value if the network call fails or returns no candidate.
 
         fun lineIdsMatch(a: String?, b: String?): Boolean {
             if (a == null || b == null) return false
@@ -357,30 +338,68 @@ class StopDetailViewModel(
             return try { ta.toIntOrNull() == tb.toIntOrNull() } catch (e: Exception) { false }
         }
 
-        return arrivals.map { arrival ->
-            val key = "${arrival.lineId}|${arrival.omschrijving}"
-            val cached = if (!forceRefresh) cache[key] else null
-            val searchResult = cached ?: try {
-                val resp = getLineDirectionsSearchUseCase(arrival.omschrijving)
-                val candidate = resp.lijnrichtingen.find { lr ->
-                    lineIdsMatch(lr.lijnnummer, arrival.lineId) &&
-                    (lr.omschrijving?.equals(arrival.omschrijving.orEmpty(), ignoreCase = true) == true ||
-                     lr.omschrijving?.contains(arrival.omschrijving.orEmpty(), ignoreCase = true) == true)
+        // Resolve metadata per unique key to avoid many network calls when arrivals contain duplicates
+        val uniqueKeys = arrivals.map { "${it.lineId}|${it.omschrijving}" }.toSet()
+        val resolved = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
+
+        for (key in uniqueKeys) {
+            val parts = key.split('|', limit = 2)
+            val lineId = parts.getOrNull(0)
+            val omschrijving = parts.getOrNull(1) ?: ""
+
+            val existingCached = cache[key]
+            if (!forceRefresh && existingCached != null) {
+                resolved[key] = existingCached
+                continue
+            }
+
+            // Try search endpoint
+            val candidate = try {
+                val resp = getLineDirectionsSearchUseCase(omschrijving)
+                val found = resp.lijnrichtingen.find { lr ->
+                    lineIdsMatch(lr.lijnnummer, lineId) &&
+                        (lr.omschrijving?.equals(omschrijving.orEmpty(), ignoreCase = true) == true ||
+                            lr.omschrijving?.contains(omschrijving.orEmpty(), ignoreCase = true) == true)
                 } ?: resp.lijnrichtingen.firstOrNull()
-                if (candidate != null) {
-                    cache[key] = candidate
-                }
-                candidate
+                if (found != null) cache[key] = found
+                found
             } catch (e: Exception) {
-                Log.w("StopDetailViewModel", "Failed to fetch line color for ${arrival.lineId} oms=${arrival.omschrijving}", e)
+                Log.w("StopDetailViewModel", "Search API failed for key=$key", e)
                 null
             }
 
-            if (searchResult == null) {
-                Log.w("StopDetailViewModel", "No color/public line found for ${arrival.lineId} oms=${arrival.omschrijving}")
-                arrival
-            } else {
-                Log.i("StopDetailViewModel", "Enriching arrival line ${arrival.lineId} with public=${searchResult.lijnNummerPubliek} color=${searchResult.kleurAchterGrond}")
+            if (candidate != null) {
+                resolved[key] = candidate
+                continue
+            }
+
+            // Fallback: try to match servedLines and fetch detail for that specific line-direction
+            val servedCandidate = servedLines.find { sl ->
+                lineIdsMatch(sl.lineId, lineId) &&
+                    (sl.omschrijving.equals(omschrijving.orEmpty(), ignoreCase = true) || sl.omschrijving.contains(omschrijving.orEmpty(), ignoreCase = true))
+            }
+            if (servedCandidate != null) {
+                try {
+                    val detail = getLineDirectionDetailUseCase(servedCandidate.entiteitnummer, servedCandidate.lineId, servedCandidate.richting)
+                    if (detail != null) {
+                        cache[key] = detail
+                        resolved[key] = detail
+                        continue
+                    }
+                } catch (e: Exception) {
+                    Log.w("StopDetailViewModel", "Detail API failed for ${servedCandidate.lineId}", e)
+                }
+            }
+
+            // As last resort, keep any existing cached value (could be null)
+            resolved[key] = existingCached
+        }
+
+        // Apply resolved metadata back to arrivals
+        return arrivals.map { arrival ->
+            val key = "${arrival.lineId}|${arrival.omschrijving}"
+            val searchResult = resolved[key]
+            if (searchResult == null) arrival else {
                 arrival.copy(
                     lineNumberPublic = searchResult.lijnNummerPubliek,
                     lineBackgroundColorHex = searchResult.kleurAchterGrond,
@@ -428,4 +447,3 @@ class StopDetailViewModel(
         return polylines
     }
 }
-

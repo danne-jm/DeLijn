@@ -3,7 +3,7 @@ package com.danieljm.delijn.utils
 object Constants {
     // Use local proxy base URL. All De Lijn API requests will be routed through this proxy.
     // The proxy exposes multiple downstream APIs under /api/delijn/... as described in the task.
-    const val BASE_URL = "https://c979573414be.ngrok-free.app/api/"
+    const val BASE_URL = "https://choice-sweet-tiger.ngrok-free.app/api/"
 
     // For Core and Search APIs
     const val API_KEY = "f74c8e50b3364c6487355ce677d4a857"
