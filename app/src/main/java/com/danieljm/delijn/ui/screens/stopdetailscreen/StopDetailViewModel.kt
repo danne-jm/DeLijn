@@ -256,19 +256,19 @@ class StopDetailViewModel(
                 )
 
                 // Recompute floating selector data after arrivals refresh using current known bus positions
-                val allBusPositionsAfterRefresh = _uiState.value.busPositions + _uiState.value.selectedBusPositions
-                val (refItems, refIcons) = computeFloatingBusSelectorData(
-                    arrivals = filtered,
-                    allBusPositions = allBusPositionsAfterRefresh,
-                    vehiclesWithGps = _uiState.value.vehiclesWithGps,
-                    selectedLineId = _uiState.value.selectedLineId
-                )
-                _uiState.value = _uiState.value.copy(floatingBusItems = refItems, floatingBusIcons = refIcons)
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
-            }
-        }
-    }
+                val allBusPositionsAfterRefresh = _uiState.value.selectedBusPositions + _uiState.value.busPositions
+                 val (refItems, refIcons) = computeFloatingBusSelectorData(
+                     arrivals = filtered,
+                     allBusPositions = allBusPositionsAfterRefresh,
+                     vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                     selectedLineId = _uiState.value.selectedLineId
+                 )
+                 _uiState.value = _uiState.value.copy(floatingBusItems = refItems, floatingBusIcons = refIcons)
+             } catch (e: Exception) {
+                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+             }
+         }
+     }
 
     fun onRefreshAnimationComplete() {
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
@@ -278,10 +278,36 @@ class StopDetailViewModel(
     fun selectLine(lineId: String?) {
         viewModelScope.launch {
             if (lineId == null) {
+                // Merge any selectedBusPositions (which may have fresher GPS data) into the global busPositions
+                val merged = (_uiState.value.busPositions + _uiState.value.selectedBusPositions)
+                    .distinctBy { it.vehicleId }
+
+                // Incorporate merged vehicle IDs into vehiclesWithGps so icons show GPS state
+                val mergedIds = merged.map { it.vehicleId }.toSet()
+                val newVehiclesWithGps = _uiState.value.vehiclesWithGps + mergedIds
+
+                // Recompute floating selector data using the merged positions so the UI is immediately consistent
+                val (clearItems, clearIcons) = computeFloatingBusSelectorData(
+                    arrivals = _uiState.value.allArrivals,
+                    allBusPositions = merged,
+                    vehiclesWithGps = newVehiclesWithGps,
+                    selectedLineId = null
+                )
+
                 // clear selection and cancel any per-vehicle polling
                 selectedVehiclePollJob?.cancel()
                 selectedVehiclePollJob = null
-                _uiState.value = _uiState.value.copy(selectedLineId = null, selectedPolylines = emptyList(), selectedBusPositions = emptyList(), busVehicleId = null)
+                _uiState.value = _uiState.value.copy(
+                    selectedLineId = null,
+                    selectedPolylines = emptyList(),
+                    selectedBusPositions = emptyList(),
+                    busVehicleId = null,
+                    // update global busPositions so untoggling shows the latest known positions
+                    busPositions = merged,
+                    vehiclesWithGps = newVehiclesWithGps,
+                    floatingBusItems = clearItems,
+                    floatingBusIcons = clearIcons
+                )
                 return@launch
             }
 
@@ -334,7 +360,7 @@ class StopDetailViewModel(
                         val vid = a.vrtnum ?: continue
                         val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
                         if (pos != null) {
-                            busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                          busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
                         }
                     } catch (_: Exception) {
                         // ignore individual failures
@@ -355,7 +381,7 @@ class StopDetailViewModel(
             )
 
             // Recompute floating selector after we fetched positions for the selected line
-            val allBusPositionsNow = (_uiState.value.busPositions + busPositions + _uiState.value.selectedBusPositions).distinctBy { it.vehicleId }
+            val allBusPositionsNow = (_uiState.value.selectedBusPositions + busPositions).distinctBy { it.vehicleId }
             val (selItems, selIcons) = computeFloatingBusSelectorData(
                 arrivals = _uiState.value.allArrivals,
                 allBusPositions = allBusPositionsNow,
@@ -363,7 +389,7 @@ class StopDetailViewModel(
                 selectedLineId = _uiState.value.selectedLineId
             )
             _uiState.value = _uiState.value.copy(floatingBusItems = selItems, floatingBusIcons = selIcons)
-        }
+         }
     }
 
     // Allow selecting an individual bus vehicle; if vehicleId==null clear the selection
@@ -399,15 +425,15 @@ class StopDetailViewModel(
             _uiState.value = _uiState.value.copy(selectedBusPositions = listOf(existing))
 
             // Recompute floating selector to reflect the selection immediately
-            val allBusPosNow = _uiState.value.busPositions + _uiState.value.selectedBusPositions
-            val (selItems2, selIcons2) = computeFloatingBusSelectorData(
-                arrivals = _uiState.value.allArrivals,
-                allBusPositions = allBusPosNow,
-                vehiclesWithGps = _uiState.value.vehiclesWithGps,
-                selectedLineId = _uiState.value.selectedLineId
-            )
-            _uiState.value = _uiState.value.copy(floatingBusItems = selItems2, floatingBusIcons = selIcons2)
-        }
+            val allBusPosNow = _uiState.value.selectedBusPositions + _uiState.value.busPositions
+             val (selItems2, selIcons2) = computeFloatingBusSelectorData(
+                 arrivals = _uiState.value.allArrivals,
+                 allBusPositions = allBusPosNow,
+                 vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                 selectedLineId = _uiState.value.selectedLineId
+             )
+             _uiState.value = _uiState.value.copy(floatingBusItems = selItems2, floatingBusIcons = selIcons2)
+         }
 
         // If a vehicle was selected, mark it as having GPS and start polling
         if (!vehicleId.isNullOrBlank()) {
@@ -417,14 +443,14 @@ class StopDetailViewModel(
             _uiState.value = _uiState.value.copy(vehiclesWithGps = newVehicles)
 
             // Recompute selector to immediately mark this vehicle as having GPS
-            val allBusPosThen = _uiState.value.busPositions + _uiState.value.selectedBusPositions
-            val (imItems, imIcons) = computeFloatingBusSelectorData(
-                arrivals = _uiState.value.allArrivals,
-                allBusPositions = allBusPosThen,
-                vehiclesWithGps = newVehicles,
-                selectedLineId = _uiState.value.selectedLineId
-            )
-            _uiState.value = _uiState.value.copy(floatingBusItems = imItems, floatingBusIcons = imIcons)
+            val allBusPosThen = _uiState.value.selectedBusPositions + _uiState.value.busPositions
+             val (imItems, imIcons) = computeFloatingBusSelectorData(
+                 arrivals = _uiState.value.allArrivals,
+                 allBusPositions = allBusPosThen,
+                 vehiclesWithGps = newVehicles,
+                 selectedLineId = _uiState.value.selectedLineId
+             )
+             _uiState.value = _uiState.value.copy(floatingBusItems = imItems, floatingBusIcons = imIcons)
 
             selectedVehiclePollJob = viewModelScope.launch {
                 // Immediate position fetch
@@ -439,14 +465,14 @@ class StopDetailViewModel(
                         )
 
                         // Recompute after we fetched the immediate vehicle position
-                        val allBusPosAfter = _uiState.value.busPositions + _uiState.value.selectedBusPositions
-                        val (pollItems, pollIcons) = computeFloatingBusSelectorData(
-                            arrivals = _uiState.value.allArrivals,
-                            allBusPositions = allBusPosAfter,
-                            vehiclesWithGps = _uiState.value.vehiclesWithGps,
-                            selectedLineId = _uiState.value.selectedLineId
-                        )
-                        _uiState.value = _uiState.value.copy(floatingBusItems = pollItems, floatingBusIcons = pollIcons)
+                        val allBusPosAfter = _uiState.value.selectedBusPositions + _uiState.value.busPositions
+                         val (pollItems, pollIcons) = computeFloatingBusSelectorData(
+                             arrivals = _uiState.value.allArrivals,
+                             allBusPositions = allBusPosAfter,
+                             vehiclesWithGps = _uiState.value.vehiclesWithGps,
+                             selectedLineId = _uiState.value.selectedLineId
+                         )
+                         _uiState.value = _uiState.value.copy(floatingBusItems = pollItems, floatingBusIcons = pollIcons)
                     }
                 } catch (_: Exception) {
                     // ignore initial fetch failure
@@ -457,12 +483,12 @@ class StopDetailViewModel(
                     try {
                         val pos = try { getVehiclePositionUseCase(vehicleId) } catch (_: Exception) { null }
                         if (pos != null) {
-                            val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
-                            val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
-                            _uiState.value = _uiState.value.copy(
-                                selectedBusPositions = merged,
-                                vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId)
-                            )
+                          val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
+                          val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
+                          _uiState.value = _uiState.value.copy(
+                            selectedBusPositions = merged,
+                            vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId)
+                          )
                         }
                     } catch (_: Exception) {
                         // ignore per-iteration failures
