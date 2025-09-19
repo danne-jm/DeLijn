@@ -86,7 +86,7 @@ class StopDetailViewModel(
 
                     // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
                     // but keep arrivals with unknown timestamps.
-                    val tenMinutesMs = 10 * 60 * 1000L
+                    val tenMinutesMs = 2 * 60 * 1000L
                     val cutoff = System.currentTimeMillis() - tenMinutesMs
                     val filtered = enriched.filter { arrival ->
                         val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
@@ -265,21 +265,32 @@ class StopDetailViewModel(
                     }
 
                     // Update the UI state with refreshed polylines and positions
-                    _uiState.value = _uiState.value.copy(selectedLineId = currentlySelectedLine, selectedPolylines = polylines, selectedBusPositions = busPositions)
+                    val currentVehicles = _uiState.value.vehiclesWithGps
+                    val fetchedIds = busPositions.map { it.vehicleId }.toSet()
+                    val newVehicles = currentVehicles + fetchedIds
+                    Log.d("StopDetailViewModel", "refresh: selectedLine=$currentlySelectedLine fetchedIds=$fetchedIds vehiclesWithGps(before)=$currentVehicles vehiclesWithGps(after)=$newVehicles")
+                    _uiState.value = _uiState.value.copy(
+                        selectedLineId = currentlySelectedLine,
+                        selectedPolylines = polylines,
+                        selectedBusPositions = busPositions,
+                        vehiclesWithGps = newVehicles
+                    )
                 }
 
                 // If an individual vehicle is selected, fetch its latest position and update state so the marker moves
+                // Do NOT overwrite the global busPositions list — always update selectedBusPositions so we don't remove
+                // other known positions used for icon GPS detection. The map display logic will still filter markers
+                // by busVehicleId when needed.
                 if (!currentlySelectedVehicle.isNullOrBlank()) {
                     try {
                         val pos = try { getVehiclePositionUseCase(currentlySelectedVehicle) } catch (_: Exception) { null }
                         if (pos != null) {
                             val bp = BusPosition(currentlySelectedVehicle, pos.latitude, pos.longitude, pos.bearing)
-                            // If a line is selected, show this vehicle in the selectedBusPositions; otherwise update global busPositions
-                            _uiState.value = if (!currentlySelectedLine.isNullOrBlank()) {
-                                _uiState.value.copy(selectedBusPositions = listOf(bp))
-                            } else {
-                                _uiState.value.copy(busPositions = listOf(bp))
-                            }
+                            // Merge the selected vehicle position into selectedBusPositions rather than overwriting
+                            // This preserves other vehicles' positions (used to determine GPS availability for icons)
+                            val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
+                            Log.d("StopDetailViewModel", "refresh: updated selectedBusPositions for vehicle=${bp.vehicleId}; selectedCount=${merged.size}")
+                            _uiState.value = _uiState.value.copy(selectedBusPositions = merged, vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId))
                         }
                     } catch (_: Exception) {
                         // ignore failures to refresh a single vehicle position
@@ -369,13 +380,23 @@ class StopDetailViewModel(
 
     // Allow selecting an individual bus vehicle; if vehicleId==null clear the selection
     fun selectBus(vehicleId: String?) {
-        // update selected vehicle id in state
+          // update selected vehicle id in state
         _uiState.value = _uiState.value.copy(busVehicleId = vehicleId)
+
+       // If a vehicle was selected, optimistically mark it as having GPS so the UI won't flicker
+        if (!vehicleId.isNullOrBlank()) {
+            _uiState.value = _uiState.value.copy(vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(vehicleId))
+        }
 
         // Cancel any previous polling job
         selectedVehiclePollJob?.cancel()
         selectedVehiclePollJob = null
 
+        // Try to seed selectedBusPositions immediately from any already-known positions (global or previous selected)
+        val existing = (_uiState.value.busPositions + _uiState.value.selectedBusPositions).find { it.vehicleId == vehicleId }
+        if (existing != null) {
+            _uiState.value = _uiState.value.copy(selectedBusPositions = listOf(existing))
+}
         // If a vehicle was selected, start a polling job to refresh its position periodically
         if (!vehicleId.isNullOrBlank()) {
             selectedVehiclePollJob = viewModelScope.launch {
@@ -384,13 +405,11 @@ class StopDetailViewModel(
                         val pos = try { getVehiclePositionUseCase(vehicleId) } catch (_: Exception) { null }
                         if (pos != null) {
                             val bp = BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing)
-                            // If a line is currently selected, update selectedBusPositions, otherwise update global busPositions
-                            val currentLine = _uiState.value.selectedLineId
-                            _uiState.value = if (!currentLine.isNullOrBlank()) {
-                                _uiState.value.copy(selectedBusPositions = listOf(bp))
-                            } else {
-                                _uiState.value.copy(busPositions = listOf(bp))
-                            }
+                            // Merge the updated position into selectedBusPositions instead of overwriting so
+                            // we don't remove other known vehicle positions which are needed for icon GPS flags.
+                            val merged = (_uiState.value.selectedBusPositions.filter { it.vehicleId != bp.vehicleId } + bp)
+                            Log.d("StopDetailViewModel", "poll-selected: merged selectedBusPositions for vehicle=${bp.vehicleId}; selectedCount=${merged.size}")
+                            _uiState.value = _uiState.value.copy(selectedBusPositions = merged, vehiclesWithGps = _uiState.value.vehiclesWithGps + setOf(bp.vehicleId))
                         }
                     } catch (_: Exception) {
                         // ignore per-iteration failures

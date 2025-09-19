@@ -22,9 +22,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -95,13 +97,19 @@ fun StopDetailScreen(
         }
     }
 
-    // Create custom markers for buses
-    val busMarkers = remember(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId, uiState.busVehicleId) {
+    // Create a stable, mutable list of bus markers that we will update in-place
+    val busMarkersState: SnapshotStateList<CustomMarker> = remember { androidx.compose.runtime.mutableStateListOf() }
+
+    // Update markers in-place whenever the relevant parts of uiState change.
+    // Using LaunchedEffect keeps the same list instance so MapComponent can update markers
+    // without needing a full reinitialization.
+    LaunchedEffect(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId, uiState.busVehicleId) {
         // choose positions: if a line is selected and we have selectedBusPositions use them, otherwise use global busPositions
         val positions = if (uiState.selectedLineId != null && uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
         // if user selected an individual vehicle, only show that one
         val filtered = uiState.busVehicleId?.let { vid -> positions.filter { it.vehicleId == vid } } ?: positions
-        filtered.map { bus ->
+
+        val newMarkers = filtered.map { bus ->
             CustomMarker(
                 id = "bus_${bus.vehicleId}",
                 latitude = bus.latitude,
@@ -112,6 +120,10 @@ fun StopDetailScreen(
                 rotation = bus.bearing + 180f // Add 180 degrees to flip the direction
             )
         }
+
+        // Update the snapshot state list in-place to maintain the same instance.
+        busMarkersState.clear()
+        busMarkersState.addAll(newMarkers)
     }
 
     // Create the current stop as a Stop object for centering
@@ -184,7 +196,7 @@ fun StopDetailScreen(
             MapComponent(
                 modifier = Modifier.fillMaxSize(),
                 stops = listOfNotNull(currentStop),
-                customMarkers = busMarkers,
+                customMarkers = busMarkersState,
                 polylines = (if (uiState.selectedPolylines.isNotEmpty()) uiState.selectedPolylines else uiState.polylines).map { lp ->
                     MapPolyline(
                         id = lp.id,
@@ -227,17 +239,40 @@ fun StopDetailScreen(
             }
 
             // Compute bus icon entries per line for the expanded selector. Badge numbers correspond to the arrival queue position
-            val itemsIcons = remember(uiState.allArrivals, uiState.selectedBusPositions, uiState.busPositions, uiState.selectedLineId, items) {
-                val map = mutableMapOf<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>()
+            // Maintain a short-lived last-seen map of vehicleIds that had GPS in the recent past to avoid transient
+            // flicker when selecting a vehicle causes small timing windows where position lists are being updated.
+            val vehicleLastSeen = remember { mutableStateMapOf<String, Long>() }
 
-                // For each line, if it's selected, compute icons for arrivals within the next 45 minutes (sequential badges)
+            // Keep the last-seen timestamps up to date whenever the ViewModel publishes positions.
+            // This ensures we capture the moment a vehicle's GPS was known even if recomposition order
+            // would otherwise cause a brief absence.
+            LaunchedEffect(uiState.busPositions, uiState.selectedBusPositions) {
+                val nowMs = System.currentTimeMillis()
+                val union = (uiState.busPositions + uiState.selectedBusPositions).distinctBy { it.vehicleId }
+                for (p in union) {
+                    val vid = p.vehicleId
+                    if (!vid.isNullOrBlank()) vehicleLastSeen[vid] = nowMs
+                }
+            }
+
+            // Debounced computation of icon entries to avoid transient flicker during rapid state changes
+            val itemsIconsState = remember { mutableStateOf<Map<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>>(emptyMap()) }
+
+            LaunchedEffect(uiState.allArrivals, uiState.selectedBusPositions, uiState.busPositions, uiState.selectedLineId, uiState.busVehicleId, uiState.vehiclesWithGps) {
+                // Short debounce so quick state churn (selection toggles) doesn't create visual flicker
+                kotlinx.coroutines.delay(100L)
+
+                val map = mutableMapOf<String, List<com.danieljm.delijn.ui.components.stopdetails.BusIconEntry>>()
                 val nowMs = System.currentTimeMillis()
                 val windowMs = 45 * 60 * 1000L
+                val positions = (uiState.busPositions + uiState.selectedBusPositions).distinctBy { it.vehicleId }
 
-                // choose positions to consult for GPS presence: prefer selectedBusPositions if present, else global busPositions
-                val positions = if (uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
+                // Update last-seen timestamps for vehicles currently present in positions
+                for (p in positions) {
+                    val vid = p.vehicleId
+                    if (!vid.isNullOrBlank()) vehicleLastSeen[vid] = nowMs
+                }
 
-                // Pre-group and sort arrivals by arrival time
                 val arrivalsByLine = uiState.allArrivals.groupBy { it.lineId }.mapValues { entry ->
                     entry.value.sortedWith(compareBy { a ->
                         val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
@@ -248,36 +283,34 @@ fun StopDetailScreen(
                 for (item in items) {
                     if (item.id == uiState.selectedLineId) {
                         val arrivalsForLine = arrivalsByLine[item.id] ?: emptyList()
-
-                        // Filter to arrivals within the next 45 minutes
                         val arrivalsWithinWindow = arrivalsForLine.filter { a ->
                             val t = if (a.realArrivalTime > 0L) a.realArrivalTime else a.expectedArrivalTime
                             t in nowMs..(nowMs + windowMs)
                         }
 
-                        // Build sequential badges and determine GPS availability per arrival
                         val icons = arrivalsWithinWindow.mapIndexed { idx, arrival ->
                             val badge = idx + 1
                             val vid = arrival.vrtnum
                             val pos = vid?.let { v -> positions.find { it.vehicleId == v } }
-                            // If we know the vrtnum set it as vehicleId so tapping the icon can select that vehicle later
-                            // hasGps is true only when we found a position for the vrtnum
+                            val seenRecently = vid?.let { v -> vehicleLastSeen[v]?.let { last -> nowMs - last < 5_000L } == true } ?: false
+                            val hasGps = (pos != null) || seenRecently || (vid != null && uiState.vehiclesWithGps.contains(vid))
                             if (!vid.isNullOrBlank()) {
-                                com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = vid, badge = badge, hasGps = (pos != null))
+                                com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = vid, badge = badge, hasGps = hasGps)
                             } else {
-                                // no vrtnum available, show missing GPS icon and no selectable vehicle id
                                 com.danieljm.delijn.ui.components.stopdetails.BusIconEntry(vehicleId = null, badge = badge, hasGps = false)
                             }
                         }
 
-                         map[item.id] = icons
-                     } else {
-                         map[item.id] = emptyList()
-                     }
-                 }
+                        map[item.id] = icons
+                    } else {
+                        map[item.id] = emptyList()
+                    }
+                }
 
-                 map.toMap()
-             }
+                itemsIconsState.value = map.toMap()
+            }
+
+            val itemsIcons = itemsIconsState.value
 
             FloatingBusSelectorRow(
                 items = items,
@@ -294,6 +327,21 @@ fun StopDetailScreen(
                     viewModel.selectBus(null)
                 },
                 onBusSelected = { vehicleId ->
+                    // Optimistically mark the vehicle as recently seen so the icon shows GPS immediately
+                    if (!vehicleId.isNullOrBlank()) {
+                        val now = System.currentTimeMillis()
+                        vehicleLastSeen[vehicleId] = now
+
+                        // Also update the local itemsIconsState to set this vehicle's hasGps = true immediately
+                        val updatedMap = itemsIconsState.value.toMutableMap()
+                        for ((lineId, icons) in itemsIconsState.value) {
+                            val newIcons = icons.map { entry ->
+                                if (entry.vehicleId == vehicleId) entry.copy(hasGps = true) else entry
+                            }
+                            updatedMap[lineId] = newIcons
+                        }
+                        itemsIconsState.value = updatedMap.toMap()
+                    }
                     // when a vehicle is selected, update view model so the map will show only that vehicle
                     viewModel.selectBus(vehicleId)
                 }

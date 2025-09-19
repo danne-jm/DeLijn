@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,6 +24,7 @@ import androidx.core.content.ContextCompat
 import com.danieljm.delijn.R
 import com.danieljm.delijn.domain.model.Stop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
@@ -99,6 +101,9 @@ fun MapComponent(
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
+
+    // Map of custom marker id -> Marker overlay for incremental updates
+    val markerMap = remember { mutableMapOf<String, Marker>() }
 
     // Initialize osmdroid configuration
     LaunchedEffect(Unit) {
@@ -194,8 +199,8 @@ fun MapComponent(
         }
     }
 
-    // Update stop markers, custom markers and polylines
-    LaunchedEffect(stops, customMarkers, polylines, darkMode) {
+    // Update stops and polylines when they change (keeps previous behavior)
+    LaunchedEffect(stops, polylines, darkMode) {
         mapViewRef?.let { mapView ->
             // Update tile source based on darkMode flag
             try {
@@ -214,9 +219,9 @@ fun MapComponent(
                 // ignore tile source change errors
             }
 
-            // Remove previous overlays except "You are here"
+            // Remove previous overlays except "You are here" and any custom markers managed in markerMap
             val overlaysToRemove = mapView.overlays.filter {
-                (it is Marker && it.title != "You are here") || it is Polyline
+                (it is Marker && it.title != "You are here" && markerMap.values.none { m -> m == it }) || it is Polyline
             }
             overlaysToRemove.forEach { mapView.overlays.remove(it) }
 
@@ -234,29 +239,6 @@ fun MapComponent(
                          onStopMarkerClick(stop)
                          true
                      }
-                 }
-                 mapView.overlays.add(marker)
-             }
-
-             // Add custom markers
-             customMarkers.forEach { customMarker ->
-                 val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
-                 val marker = Marker(mapView).apply {
-                     position = gp
-                     if (customMarker.rotation != 0f) {
-                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                     } else {
-                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                     }
-                     title = customMarker.title
-                     snippet = customMarker.snippet
-                     icon = ContextCompat.getDrawable(context, customMarker.iconResourceId)
-                     relatedObject = customMarker.id
-                     setOnMarkerClickListener { _, _ ->
-                         customMarker.onClick?.invoke()
-                         true
-                     }
-                     rotation = customMarker.rotation
                  }
                  mapView.overlays.add(marker)
              }
@@ -308,6 +290,66 @@ fun MapComponent(
 
              mapView.invalidate()
          }
+    }
+
+    // Incrementally update custom markers using snapshotFlow so small changes don't recreate everything
+    LaunchedEffect(customMarkers) {
+        val mapView = mapViewRef
+        if (mapView == null) return@LaunchedEffect
+
+        // snapshotFlow will observe the composition snapshot if customMarkers is a SnapshotStateList
+        snapshotFlow { customMarkers.toList() }.collect { list ->
+            // Diff by id
+            val ids = list.map { it.id }.toSet()
+
+            // Remove markers that are no longer present
+            val toRemove = markerMap.keys - ids
+            toRemove.forEach { id ->
+                val marker = markerMap.remove(id)
+                marker?.let { mapView.overlays.remove(it) }
+            }
+
+            // Add or update markers
+            for (cm in list) {
+                val existing = markerMap[cm.id]
+                if (existing == null) {
+                    val gp = GeoPoint(cm.latitude, cm.longitude)
+                    val marker = Marker(mapView).apply {
+                        position = gp
+                        if (cm.rotation != 0f) {
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        } else {
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        }
+                        title = cm.title
+                        snippet = cm.snippet
+                        icon = ContextCompat.getDrawable(context, cm.iconResourceId)
+                        relatedObject = cm.id
+                        setOnMarkerClickListener { _, _ ->
+                            cm.onClick?.invoke()
+                            true
+                        }
+                        rotation = cm.rotation
+                    }
+                    markerMap[cm.id] = marker
+                    mapView.overlays.add(marker)
+                } else {
+                    // Update position/rotation/icon if necessary
+                    val newLat = cm.latitude
+                    val newLon = cm.longitude
+                    if (existing.position.latitude != newLat || existing.position.longitude != newLon) {
+                        existing.position = GeoPoint(newLat, newLon)
+                    }
+                    if (existing.rotation != cm.rotation) existing.rotation = cm.rotation
+                    // Update icon if resource id differs - osmdroid Marker doesn't expose resource id, so always reset in case
+                    existing.icon = ContextCompat.getDrawable(context, cm.iconResourceId)
+                    existing.title = cm.title
+                    existing.snippet = cm.snippet
+                }
+            }
+
+            mapView.invalidate()
+        }
     }
 
     // Listen for map state changes

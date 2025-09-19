@@ -34,6 +34,8 @@ data class StopDetailUiState(
     val busLongitude: Double? = null,
     val busVehicleId: String? = null,
     val busPositions: List<BusPosition> = emptyList(),
+    // Set of vehicleIds for which we've observed GPS positions recently (helps avoid flicker)
+    val vehiclesWithGps: Set<String> = emptySet(),
     // Polylines representing line directions to draw on the map
     val polylines: List<com.danieljm.delijn.domain.model.LinePolyline> = emptyList()
 )
