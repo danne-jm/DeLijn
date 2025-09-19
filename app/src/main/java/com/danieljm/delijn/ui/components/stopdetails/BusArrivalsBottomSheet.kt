@@ -24,10 +24,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
 import com.danieljm.delijn.domain.model.ArrivalInfo
@@ -92,6 +95,19 @@ fun BusArrivalsBottomSheet(
             onRefreshAnimationComplete?.invoke()
         }
     }
+
+    // Compute bottom content padding to ensure the last item can be scrolled fully into view
+    val view = LocalView.current
+    val navBarInsetDp = remember {
+        try {
+            val insets = ViewCompat.getRootWindowInsets(view)
+            val bottom = insets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+            with(density) { bottom.toDp() }
+        } catch (_: Exception) {
+            16.dp
+        }
+    }
+    val bottomContentPadding = (24.dp + navBarInsetDp)
 
     Surface(
         modifier = modifier
@@ -193,7 +209,8 @@ fun BusArrivalsBottomSheet(
                         .fillMaxSize()
                         .padding(top = 8.dp), // Only top padding
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    state = listState
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = bottomContentPadding)
                 ) {
                     items(items = arrivals, key = { arrival -> arrival.lineId + arrival.time }) { arrival ->
                         BusCard(arrival = arrival)

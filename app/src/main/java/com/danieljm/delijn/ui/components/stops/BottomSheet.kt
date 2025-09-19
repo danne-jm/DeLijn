@@ -3,6 +3,8 @@ package com.danieljm.delijn.ui.components.stops
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -23,15 +25,19 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
 import com.danieljm.delijn.domain.model.Stop
 import kotlin.math.*
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BottomSheet(
     modifier: Modifier = Modifier,
@@ -90,6 +96,22 @@ fun BottomSheet(
         }
     }
 
+    // Determine a safe bottom padding that includes navigation bar insets so the last list item
+    // can be scrolled fully into view even when overscroll is enabled.
+    val view = LocalView.current
+    val navBarInsetDp = remember {
+        // Fallback to 16.dp if we can't obtain insets.
+        try {
+            val insets = ViewCompat.getRootWindowInsets(view)
+            val bottom = insets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+            with(density) { bottom.toDp() }
+        } catch (_: Exception) {
+            16.dp
+        }
+    }
+
+    val bottomContentPadding = (24.dp + navBarInsetDp)
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -98,7 +120,7 @@ fun BottomSheet(
         shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
     ) {
         // Content
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -166,7 +188,8 @@ fun BottomSheet(
                         .fillMaxSize()
                         .padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    state = listState
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = bottomContentPadding)
                 ) {
                     items(sortedStops, key = { it.id }) { stop ->
                         StopCard(
@@ -177,11 +200,13 @@ fun BottomSheet(
                         )
                     }
                     item {
-                        Spacer(modifier = Modifier.height(16.dp))
+                            // Keep a small spacer to provide breathing room after the last item - the
+                            // contentPadding ensures it's possible to fully reveal the last entry.
+                            Spacer(modifier = Modifier.height(32.dp))
+                        }
                     }
                 }
             }
-        }
     }
 }
 
