@@ -93,21 +93,33 @@ class StopDetailViewModel(
                         emptyList()
                     }
 
-                    // Filter each source by the 90-minute window
-                    val schedFiltered = scheduledArrivals.filter { it.expectedArrivalTime in nowMs..(nowMs + windowMs) }
-                    val realtimeFiltered = realTimeArrivals.filter { it.realArrivalTime > 0L && it.realArrivalTime in nowMs..(nowMs + windowMs) }
-
-                    val arrivalsToShow = mergeArrivalsPreferRealtime(schedFiltered, realtimeFiltered)
+                    // Do not filter scheduled arrivals for the list; show all scheduled for the day.
+                    // Keep real-time arrivals as-is (they will replace scheduled entries where appropriate).
+                    val arrivalsToShow = mergeArrivalsPreferRealtime(scheduledArrivals, realTimeArrivals)
 
                     // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
                     val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
 
-                    // Do not populate polylines or bus positions on initial load — only on user selection
+                    // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
+                    // but keep arrivals with unknown timestamps.
+                    val tenMinutesMs = 10 * 60 * 1000L
+                    val cutoff = System.currentTimeMillis() - tenMinutesMs
+                    val filtered = enriched.filter { arrival ->
+                        val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
+                        // If we have a timestamp, exclude it when it is strictly less than cutoff (i.e., arrived 10+ minutes ago)
+                        if (t > 0L) {
+                            t >= cutoff
+                        } else {
+                            // unknown timestamp: keep it
+                            true
+                        }
+                    }
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stopName,
                         servedLines = servedLines,
-                        allArrivals = enriched,
+                        allArrivals = filtered,
                         lastArrivalsRefreshMillis = System.currentTimeMillis(),
                         stopLatitude = stop.latitude,
                         stopLongitude = stop.longitude
@@ -195,18 +207,24 @@ class StopDetailViewModel(
                     emptyList()
                 }
 
-                val schedFiltered = scheduledArrivals.filter { it.expectedArrivalTime in nowMs..(nowMs + windowMs) }
-                val realtimeFiltered = realTimeArrivals.filter { it.realArrivalTime > 0L && it.realArrivalTime in nowMs..(nowMs + windowMs) }
-
-                val arrivalsToShow = mergeArrivalsPreferRealtime(schedFiltered, realtimeFiltered)
+                val arrivalsToShow = mergeArrivalsPreferRealtime(scheduledArrivals, realTimeArrivals)
 
                 // Enrich arrivals
                 val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
 
+                // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
+                // but keep arrivals with unknown timestamps.
+                val tenMinutesMs = 10 * 60 * 1000L
+                val cutoff = System.currentTimeMillis() - tenMinutesMs
+                val filtered = enriched.filter { arrival ->
+                    val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
+                    if (t > 0L) t >= cutoff else true
+                }
+
                 // Do not update global polylines/busPositions on refresh; keep map empty until user selects a line
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    allArrivals = enriched,
+                    allArrivals = filtered,
                     servedLines = servedLines,
                     lastArrivalsRefreshMillis = System.currentTimeMillis()
                 )
@@ -259,23 +277,66 @@ class StopDetailViewModel(
                 }
             }
 
-            // Fetch vehicle positions for arrivals matching this line
-            val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == lineId && !it.vrtnum.isNullOrBlank() }
+            // Determine if this line has any upcoming arrivals within the 90-minute window — only then request GPS positions
+            val nowMs = System.currentTimeMillis()
+            val windowMs = 90 * 60 * 1000L
+            val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == lineId }
+            val arrivalsWithinWindow = arrivalsForLine.filter {
+                val t = if (it.realArrivalTime > 0L) it.realArrivalTime else it.expectedArrivalTime
+                t in nowMs..(nowMs + windowMs)
+            }
             val busPositions = mutableListOf<BusPosition>()
-            for (a in arrivalsForLine) {
-                try {
-                    val vid = a.vrtnum ?: continue
-                    val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
-                    if (pos != null) {
-                        busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+            if (arrivalsWithinWindow.isNotEmpty()) {
+                val toQuery = arrivalsWithinWindow.filter { !it.vrtnum.isNullOrBlank() }
+                for (a in toQuery) {
+                    try {
+                        val vid = a.vrtnum ?: continue
+                        val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
+                        if (pos != null) {
+                            busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                        }
+                    } catch (_: Exception) {
+                        // ignore
                     }
-                } catch (_: Exception) {
-                    // ignore
                 }
             }
 
+            // Update UI state inside the coroutine so local variables are in scope
             _uiState.value = _uiState.value.copy(selectedLineId = lineId, selectedPolylines = polylines, selectedBusPositions = busPositions)
         }
+    }
+
+    // Merge scheduled and real-time arrival lists:
+    // - Keep scheduled arrivals that are within the window
+    // - Replace scheduled entries with real-time entries when they represent the same trip
+    // - Add real-time-only arrivals
+    private fun mergeArrivalsPreferRealtime(
+        scheduled: List<com.danieljm.delijn.domain.model.ArrivalInfo>,
+        realtime: List<com.danieljm.delijn.domain.model.ArrivalInfo>
+    ): List<com.danieljm.delijn.domain.model.ArrivalInfo> {
+        val resultMap = linkedMapOf<String, com.danieljm.delijn.domain.model.ArrivalInfo>()
+
+        fun keyFor(a: com.danieljm.delijn.domain.model.ArrivalInfo): String {
+            // Use lineId + expectedArrivalTime + destination to dedupe; expectedArrivalTime comes from scheduled time
+            return "${a.lineId}_${a.expectedArrivalTime}_${a.destination}"
+        }
+
+        // Start with scheduled arrivals (they are marked as schedule-only by mapper)
+        for (s in scheduled) {
+            val k = keyFor(s)
+            resultMap[k] = s
+        }
+
+        // For realtime arrivals, prefer them: replace existing scheduled entry with realtime info
+        for (r in realtime) {
+            val k = keyFor(r)
+            // Ensure realtime entries are marked as not schedule-only
+            val updated = if (r.isScheduleOnly) r.copy(isScheduleOnly = false) else r
+            resultMap[k] = updated
+        }
+
+        // Return values in insertion order: scheduled-first, realtime replacements will take place
+        return resultMap.values.toList()
     }
 
     private suspend fun enrichArrivalsWithLineColors(
@@ -366,37 +427,5 @@ class StopDetailViewModel(
         }
         return polylines
     }
-
-    // Merge scheduled and real-time arrival lists:
-    // - Keep scheduled arrivals that are within the window
-    // - Replace scheduled entries with real-time entries when they represent the same trip
-    // - Add real-time-only arrivals
-    private fun mergeArrivalsPreferRealtime(
-        scheduled: List<com.danieljm.delijn.domain.model.ArrivalInfo>,
-        realtime: List<com.danieljm.delijn.domain.model.ArrivalInfo>
-    ): List<com.danieljm.delijn.domain.model.ArrivalInfo> {
-        val resultMap = linkedMapOf<String, com.danieljm.delijn.domain.model.ArrivalInfo>()
-
-        fun keyFor(a: com.danieljm.delijn.domain.model.ArrivalInfo): String {
-            // Use lineId + expectedArrivalTime + destination to dedupe; expectedArrivalTime comes from scheduled time
-            return "${a.lineId}_${a.expectedArrivalTime}_${a.destination}"
-        }
-
-        // Start with scheduled arrivals (they are marked as schedule-only by mapper)
-        for (s in scheduled) {
-            val k = keyFor(s)
-            resultMap[k] = s
-        }
-
-        // For realtime arrivals, prefer them: replace existing scheduled entry with realtime info
-        for (r in realtime) {
-            val k = keyFor(r)
-            // Ensure realtime entries are marked as not schedule-only
-            val updated = if (r.isScheduleOnly) r.copy(isScheduleOnly = false) else r
-            resultMap[k] = updated
-        }
-
-        // Return values in insertion order: scheduled-first, realtime replacements will take place
-        return resultMap.values.toList()
-    }
 }
+
