@@ -49,6 +49,11 @@ import com.composables.icons.lucide.Heart
 import com.composables.icons.lucide.Lucide
 import org.koin.androidx.compose.koinViewModel
 
+// New imports for location handling via DI
+import android.location.Location
+import com.danieljm.delijn.data.location.LocationProvider
+import org.koin.androidx.compose.get
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StopDetailScreen(
@@ -69,6 +74,29 @@ fun StopDetailScreen(
     // Map state management using the same state type as StopsScreen
     var mapState by rememberSaveable(stateSaver = MapState.Saver) {
         mutableStateOf(MapState(zoom = 18.0))
+    }
+
+    // Location handling: obtain LocationProvider from Koin and collect last-known + updates
+    val locationProvider = get<LocationProvider>()
+    var userLocation by remember { mutableStateOf<Location?>(null) }
+
+    LaunchedEffect(locationProvider) {
+        try {
+            // Try to get last known location first
+            val last = try { locationProvider.getLastKnownLocation() } catch (_: Exception) { null }
+            if (last != null) userLocation = last
+
+            // Then collect continuous updates (this will suspend until cancelled)
+            try {
+                locationProvider.locationUpdates().collect { loc ->
+                    userLocation = loc
+                }
+            } catch (_: Exception) {
+                // ignore collection errors; LocationProviderImpl already logs permission issues
+            }
+        } catch (_: Exception) {
+            // ignore any errors obtaining location
+        }
     }
 
     // Set status bar color to match top app bar and restore on dispose
@@ -208,7 +236,8 @@ fun StopDetailScreen(
                 onMapStateChanged = { newState -> mapState = newState },
                 centerOnStop = currentStop,
                 mapCenterOffset = 250.0,
-                showUserLocationMarker = false,
+                userLocation = userLocation,
+                showUserLocationMarker = true,
                 darkMode = isSystemInDarkTheme()
             )
 
