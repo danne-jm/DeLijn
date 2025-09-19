@@ -1,7 +1,6 @@
 package com.danieljm.delijn.ui.components.map
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Paint
 import android.location.Location
 import androidx.compose.animation.core.Animatable
@@ -12,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -100,7 +98,6 @@ fun MapComponent(
     val coroutineScope = rememberCoroutineScope()
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    val allUnfocusedMarkers = remember { mutableStateListOf<Marker>() }
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
 
     // Initialize osmdroid configuration
@@ -213,7 +210,7 @@ fun MapComponent(
                 } else {
                     mapView.setTileSource(TileSourceFactory.MAPNIK)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // ignore tile source change errors
             }
 
@@ -223,176 +220,94 @@ fun MapComponent(
             }
             overlaysToRemove.forEach { mapView.overlays.remove(it) }
 
-            // Clear and rebuild the unfocused markers list
-            allUnfocusedMarkers.clear()
+             // Add markers for each stop (focused stops)
+             stops.forEach { stop ->
+                 val gp = GeoPoint(stop.latitude, stop.longitude)
+                 val marker = Marker(mapView).apply {
+                     position = gp
+                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                     title = stop.name
+                     snippet = "Stop ID: ${stop.id}"
+                     icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
+                     relatedObject = stop.id
+                     setOnMarkerClickListener { _, _ ->
+                         onStopMarkerClick(stop)
+                         true
+                     }
+                 }
+                 mapView.overlays.add(marker)
+             }
 
-            // Add markers for each stop (focused stops)
-            stops.forEach { stop ->
-                val gp = GeoPoint(stop.latitude, stop.longitude)
-                val marker = Marker(mapView).apply {
-                    position = gp
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = stop.name
-                    snippet = "Stop ID: ${stop.id}"
-                    icon = ContextCompat.getDrawable(context, R.drawable.bus_stop)
-                    relatedObject = stop.id
-                    setOnMarkerClickListener { _, _ ->
-                        onStopMarkerClick(stop)
-                        true
-                    }
-                }
-                mapView.overlays.add(marker)
-            }
+             // Add custom markers
+             customMarkers.forEach { customMarker ->
+                 val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
+                 val marker = Marker(mapView).apply {
+                     position = gp
+                     if (customMarker.rotation != 0f) {
+                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                     } else {
+                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                     }
+                     title = customMarker.title
+                     snippet = customMarker.snippet
+                     icon = ContextCompat.getDrawable(context, customMarker.iconResourceId)
+                     relatedObject = customMarker.id
+                     setOnMarkerClickListener { _, _ ->
+                         customMarker.onClick?.invoke()
+                         true
+                     }
+                     rotation = customMarker.rotation
+                 }
+                 mapView.overlays.add(marker)
+             }
 
-            // Add custom markers
-            customMarkers.forEach { customMarker ->
-                val gp = GeoPoint(customMarker.latitude, customMarker.longitude)
-                val marker = Marker(mapView).apply {
-                    position = gp
-                    if (customMarker.rotation != 0f) {
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    } else {
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    }
-                    title = customMarker.title
-                    snippet = customMarker.snippet
-                    icon = ContextCompat.getDrawable(context, customMarker.iconResourceId)
-                    relatedObject = customMarker.id
-                    setOnMarkerClickListener { _, _ ->
-                        customMarker.onClick?.invoke()
-                        true
-                    }
-                    rotation = customMarker.rotation
-                }
-                mapView.overlays.add(marker)
-            }
+             // Add polylines (routes)
+             polylines.forEach { poly ->
+                 // Densify based on current zoom to reduce long segments and visual gaps
+                 val currentZoom = try { mapView.zoomLevelDouble } catch (_: Exception) { mapState.zoom }
+                 val finalCoordsList = densifyCoordinates(poly.coordinates, currentZoom)
+                 val pts = finalCoordsList.map { (lat, lon) -> GeoPoint(lat, lon) }
 
-            // Add polylines (routes)
-            polylines.forEach { poly ->
-                // Densify based on current zoom to reduce long segments and visual gaps
-                val currentZoom = try { mapView.zoomLevelDouble } catch (e: Exception) { mapState.zoom }
-                val finalCoordsList = densifyCoordinates(poly.coordinates, currentZoom)
-                val pts = finalCoordsList.map { (lat, lon) -> GeoPoint(lat, lon) }
+                 // Background line to smooth out seams/gaps at low zoom
+                 val bgLine = Polyline(mapView).apply {
+                     setPoints(pts)
+                     val baseCol = try {
+                         poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
+                     } catch (_: Exception) {
+                         AndroidColor.parseColor("#2196F3")
+                     }
+                     color = withAlpha(baseCol, 200) // slightly translucent background
+                     width = poly.width + 6f
+                     isEnabled = false
+                     val p = paint
+                     p.isAntiAlias = true
+                     p.strokeJoin = Paint.Join.ROUND
+                     p.strokeCap = Paint.Cap.ROUND
+                 }
+                 mapView.overlays.add(bgLine)
 
-                // Background line to smooth out seams/gaps at low zoom
-                val bgLine = Polyline(mapView).apply {
-                    setPoints(pts)
-                    val baseCol = try {
-                        poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
-                    } catch (_: Exception) {
-                        AndroidColor.parseColor("#2196F3")
-                    }
-                    color = withAlpha(baseCol, 200) // slightly translucent background
-                    width = poly.width + 6f
-                    isEnabled = false
-                    val p = paint
-                    p.isAntiAlias = true
-                    p.strokeJoin = Paint.Join.ROUND
-                    p.strokeCap = Paint.Cap.ROUND
-                }
-                mapView.overlays.add(bgLine)
+                 val line = Polyline(mapView).apply {
+                     setPoints(pts)
+                     val col = try {
+                         poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
+                     } catch (_: Exception) {
+                         AndroidColor.parseColor("#2196F3")
+                     }
+                     color = col
+                     width = poly.width
+                     isEnabled = true
 
-                val line = Polyline(mapView).apply {
-                    setPoints(pts)
-                    val col = try {
-                        poly.colorHex?.let { AndroidColor.parseColor(it) } ?: AndroidColor.parseColor("#2196F3")
-                    } catch (_: Exception) {
-                        AndroidColor.parseColor("#2196F3")
-                    }
-                    color = col
-                    width = poly.width
-                    isEnabled = true
+                     // Improve stroke rendering to reduce visible gaps at low zoom
+                     val p = paint
+                     p.isAntiAlias = true
+                     p.strokeJoin = Paint.Join.ROUND
+                     p.strokeCap = Paint.Cap.ROUND
+                 }
+                 mapView.overlays.add(line)
+             }
 
-                    // Improve stroke rendering to reduce visible gaps at low zoom
-                    val p = paint
-                    p.isAntiAlias = true
-                    p.strokeJoin = Paint.Join.ROUND
-                    p.strokeCap = Paint.Cap.ROUND
-                }
-                mapView.overlays.add(line)
-
-                // Create unfocused stop markers for polyline coordinates but don't add them yet
-                // They will be added dynamically based on zoom and proximity
-                val existingStopPositions = mapView.overlays
-                    .filterIsInstance<Marker>()
-                    .map { it.position }
-
-                poly.coordinates.forEach { (lat, lon) ->
-                    val newPoint = GeoPoint(lat, lon)
-                    // Only create marker if no existing marker is very close
-                    val tooClose = existingStopPositions.any {
-                        haversineMeters(it.latitude, it.longitude, lat, lon) < 50.0
-                    }
-
-                    if (!tooClose) {
-                        val stopMarker = Marker(mapView).apply {
-                            position = newPoint
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            title = "Stop" // Generic title for unfocused stops
-                            icon = ContextCompat.getDrawable(context, R.drawable.unfocused_bus_stop)
-                            relatedObject = "unfocused_${poly.id}_${lat}_${lon}"
-                            setOnMarkerClickListener { _, _ ->
-                                // Create a basic Stop object for navigation
-                                val clickedStop = Stop(
-                                    id = "unknown", // Will need to resolve this
-                                    name = "Stop",
-                                    latitude = lat,
-                                    longitude = lon,
-                                    entiteitnummer = "",
-                                    halteNummer = ""
-                                )
-                                onStopMarkerClick(clickedStop)
-                                true
-                            }
-                        }
-                        allUnfocusedMarkers.add(stopMarker)
-                    }
-                }
-            }
-
-            mapView.invalidate()
-        }
-    }
-
-    // Dynamic visibility management for unfocused markers based on zoom and proximity
-    LaunchedEffect(mapState) {
-        val mapView = mapViewRef ?: return@LaunchedEffect
-        val currentZoom = mapState.zoom
-        val mapCenter = mapState.centerLatitude?.let { lat ->
-            mapState.centerLongitude?.let { lon ->
-                GeoPoint(lat, lon)
-            }
-        }
-
-        // Remove all unfocused markers from map first
-        allUnfocusedMarkers.forEach { marker ->
-            mapView.overlays.remove(marker)
-        }
-
-        // Only show unfocused markers if zoomed in enough (zoom level 16 or higher)
-        if (currentZoom >= 16.0 && mapCenter != null) {
-            // Calculate distances and sort by proximity to map center
-            val markersWithDistance = allUnfocusedMarkers.map { marker ->
-                val distance = haversineMeters(
-                    mapCenter.latitude, mapCenter.longitude,
-                    marker.position.latitude, marker.position.longitude
-                )
-                marker to distance
-            }.sortedBy { it.second }
-
-            // Show only the closest 5 unfocused markers within 500 meters
-            val maxMarkersToShow = 5
-            val maxDistanceMeters = 500.0
-
-            markersWithDistance
-                .take(maxMarkersToShow)
-                .filter { it.second <= maxDistanceMeters }
-                .forEach { (marker, _) ->
-                    mapView.overlays.add(marker)
-                }
-        }
-
-        mapView.invalidate()
+             mapView.invalidate()
+         }
     }
 
     // Listen for map state changes
