@@ -12,23 +12,23 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 object NetworkModule {
 
-    fun provideOkHttpClient(apiKey: String = Constants.API_KEY): OkHttpClient {
+    fun provideOkHttpClient(coreApiKey: String = Constants.API_KEY, realtimeApiKey: String): OkHttpClient {
         // Enable verbose logging to inspect request/response bodies during development
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         return OkHttpClient.Builder()
-            .addInterceptor(AuthInterceptor(apiKey))
+            .addInterceptor(AuthInterceptor(coreApiKey, realtimeApiKey))
             .addInterceptor(logging)
             .build()
     }
 
-    fun provideRetrofit(client: OkHttpClient): Retrofit {
+    fun provideRetrofit(client: OkHttpClient, baseUrl: String = Constants.BASE_URL): Retrofit {
         // Create Moshi instance with KotlinJsonAdapterFactory to support Kotlin data classes
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
 
         return Retrofit.Builder()
-            .baseUrl(Constants.BASE_URL)
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()

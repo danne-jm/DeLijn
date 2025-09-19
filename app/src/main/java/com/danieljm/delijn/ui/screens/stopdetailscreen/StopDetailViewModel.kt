@@ -11,15 +11,13 @@ import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetScheduledArrivalsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsSearchUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionStopsUseCase
+import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
 import com.danieljm.delijn.domain.model.LinePolyline
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
-import org.json.JSONObject
 
 class StopDetailViewModel(
     private val getStopDetailsUseCase: GetStopDetailsUseCase,
@@ -28,57 +26,26 @@ class StopDetailViewModel(
     private val getScheduledArrivalsUseCase: GetScheduledArrivalsUseCase,
     private val getLineDirectionDetailUseCase: GetLineDirectionDetailUseCase,
     private val getLineDirectionsSearchUseCase: GetLineDirectionsSearchUseCase,
-    private val getLineDirectionStopsUseCase: GetLineDirectionStopsUseCase
+    private val getLineDirectionStopsUseCase: GetLineDirectionStopsUseCase,
+    private val getVehiclePositionUseCase: GetVehiclePositionUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StopDetailUiState())
     val uiState: StateFlow<StopDetailUiState> = _uiState
     // Persistent cache across enrich calls. Cleared or bypassed when forceRefresh is requested.
     private val lineDetailCache = mutableMapOf<String, com.danieljm.delijn.domain.model.LineDirectionSearch?>()
 
-    private suspend fun fetchBusPosition(vehicleId: String): Triple<Double, Double, Float>? {
-        val apiUrl = "https://api.delijn.be/gtfs/v3/realtime?json=true&position=true&vehicleid=$vehicleId"
-        val apiKey = "5eacdcf7e85c4637a14f4d627403935a"
-        return withContext(Dispatchers.IO) {
-            val url = URL(apiUrl)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.setRequestProperty("Ocp-Apim-Subscription-Key", apiKey)
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            try {
-                val response = conn.inputStream.bufferedReader().readText()
-                val json = JSONObject(response)
-                val entities = json.optJSONArray("entity") ?: return@withContext null
-                for (i in 0 until entities.length()) {
-                    val entity = entities.getJSONObject(i)
-                    if (entity.has("vehicle")) {
-                        val vehicle = entity.getJSONObject("vehicle")
-                        val position = vehicle.optJSONObject("position") ?: continue
-                        val lat = position.optDouble("latitude")
-                        val lon = position.optDouble("longitude")
-                        val bearing = position.optDouble("bearing", 0.0).toFloat()
-                        if (!lat.isNaN() && !lon.isNaN()) {
-                            return@withContext Triple(lat, lon, bearing)
-                        }
-                    }
-                }
-                null
-            } catch (e: Exception) {
-                Log.e("StopDetailViewModel", "Error fetching bus position", e)
-                null
-            } finally {
-                conn.disconnect()
-            }
-        }
-    }
-
     private suspend fun fetchAllBusPositions(arrivals: List<com.danieljm.delijn.domain.model.ArrivalInfo>): List<BusPosition> {
         val positions = mutableListOf<BusPosition>()
         for (arrival in arrivals) {
             val vehicleId = arrival.vrtnum
             if (!vehicleId.isNullOrEmpty()) {
-                val pos = fetchBusPosition(vehicleId)
-                if (pos != null) {
-                    positions.add(BusPosition(vehicleId, pos.first, pos.second, pos.third))
+                try {
+                    val pos = getVehiclePositionUseCase(vehicleId)
+                    if (pos != null) {
+                        positions.add(BusPosition(vehicleId, pos.latitude, pos.longitude, pos.bearing))
+                    }
+                } catch (e: Exception) {
+                    Log.w("StopDetailViewModel", "Failed to fetch vehicle position for $vehicleId", e)
                 }
             }
         }

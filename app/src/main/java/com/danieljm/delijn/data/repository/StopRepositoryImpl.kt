@@ -35,8 +35,39 @@ class StopRepositoryImpl(
     }
 
     override suspend fun getRealTimeArrivals(stopId: String): List<RealTimeDto> {
-        // Forward to network realtime endpoint. No caching for realtime data.
-        return api.getRealTimeForStop(stopId)
+        // Determine entiteitnummer + haltenummer from cache or remote stop endpoint
+        val cached = dao.getStopById(stopId)
+        val stopEntity = if (cached != null) cached else {
+            try {
+                val dto = api.getStop(stopId)
+                val entity = StopMapper.dtoToEntity(dto)
+                dao.insertStops(listOf(entity))
+                entity
+            } catch (e: Exception) {
+                Log.w("StopRepository", "Unable to resolve stop $stopId for realtime arrivals", e)
+                return emptyList()
+            }
+        }
+
+        val entiteit = stopEntity.entiteitnummer ?: "3"
+        val haltenummer = stopEntity.halteNummer ?: stopEntity.id
+
+        return try {
+            val resp = api.getRealTimeArrivals(entiteit, haltenummer)
+            resp.halteDoorkomsten.flatMap { halte ->
+                halte.doorkomsten.map { doorkomst ->
+                    // Map minimal fields to legacy RealTimeDto
+                    RealTimeDto(
+                        stopId = stopId,
+                        line = doorkomst.lijnnummer,
+                        expectedArrivalEpochMs = 0L
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("StopRepository", "Error fetching realtime arrivals for $stopId (entiteit=$entiteit, halte=$haltenummer)", e)
+            emptyList()
+        }
     }
 
     override suspend fun getNearbyStops(latitude: Double, longitude: Double): List<Stop> {

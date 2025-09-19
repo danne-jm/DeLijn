@@ -11,28 +11,34 @@ import com.danieljm.delijn.data.remote.dto.RouteDto
 import com.danieljm.delijn.data.remote.dto.StopDto
 import com.danieljm.delijn.data.remote.dto.RealTimeArrivalsResponseDto
 import com.danieljm.delijn.data.remote.dto.ScheduledArrivalsResponseDto
+import okhttp3.ResponseBody
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** Retrofit interface for De Lijn Open Data endpoints. */
+/** Retrofit interface for De Lijn Open Data endpoints routed through the local proxy */
 interface DeLijnApiService {
-    @GET("stops")
+    @GET("delijn/DLKernOpenData/api/v1/stops")
     suspend fun searchStops(@Query("q") query: String): List<StopDto>
 
-    @GET("stops/{id}")
+    @GET("delijn/DLKernOpenData/api/v1/stops/{id}")
     suspend fun getStop(@Path("id") id: String): StopDto
 
-    @GET("routes/{id}")
+    @GET("delijn/DLKernOpenData/api/v1/routes/{id}")
     suspend fun getRoute(@Path("id") id: String): RouteDto
 
-    @GET("buses/{id}")
+    @GET("delijn/DLKernOpenData/api/v1/buses/{id}")
     suspend fun getBus(@Path("id") id: String): BusDto
 
-    @GET("realtime/{stopId}")
-    suspend fun getRealTimeForStop(@Path("stopId") stopId: String): List<RealTimeDto>
+    @GET("delijn/DLKernOpenData/api/v1/haltes/{entiteitnummer}/{haltenummer}/real-time")
+    suspend fun getRealTimeArrivals(
+        @Path("entiteitnummer") entiteitnummer: String,
+        @Path("haltenummer") haltenummer: String,
+        @Query("maxAantalDoorkomsten") maxAantalDoorkomsten: Int = 10
+    ): RealTimeArrivalsResponseDto
 
-    @GET("haltes/indebuurt/{latitude},{longitude}")
+    // Nearby stops via proxy: /api/delijn/DLKernOpenData/api/v1/haltes/indebuurt/{lat},{lon}
+    @GET("delijn/DLKernOpenData/api/v1/haltes/indebuurt/{latitude},{longitude}")
     suspend fun getNearbyStops(
         @Path("latitude") latitude: Double,
         @Path("longitude") longitude: Double,
@@ -40,46 +46,45 @@ interface DeLijnApiService {
         @Query("maxAantalHaltes") maxStops: Int = 50
     ): NearbyStopsResponseDto
 
-    @GET("haltes/{entiteitnummer}/{haltenummer}/lijnrichtingen")
+    @GET("delijn/DLKernOpenData/api/v1/haltes/{entiteitnummer}/{haltenummer}/lijnrichtingen")
     suspend fun getLineDirectionsForStop(
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("haltenummer") haltenummer: String
     ): LineDirectionsResponseDto
 
-    @GET("haltes/{entiteitnummer}/{haltenummer}/real-time")
-    suspend fun getRealTimeArrivals(
-        @Path("entiteitnummer") entiteitnummer: String,
-        @Path("haltenummer") haltenummer: String,
-        @Query("maxAantalDoorkomsten") maxAantalDoorkomsten: Int = 10
-    ): RealTimeArrivalsResponseDto
-
-    @GET("haltes/{entiteitnummer}/{haltenummer}/dienstregelingen")
+    @GET("delijn/DLKernOpenData/api/v1/haltes/{entiteitnummer}/{haltenummer}/dienstregelingen")
     suspend fun getScheduledArrivals(
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("haltenummer") haltenummer: String,
         @Query("datum") datum: String
     ): ScheduledArrivalsResponseDto
 
-    // New: search lijnrichtingen by a free-text argument (omschrijving). Returns kleuren and public line numbers.
-    @GET("https://api.delijn.be/DLZoekOpenData/v1/zoek/lijnrichtingen/{zoekArgument}")
+    // Search API is on DLZoekOpenData via proxy
+    @GET("delijn/DLZoekOpenData/v1/zoek/lijnrichtingen/{zoekArgument}")
     suspend fun searchLineDirections(
         @Path("zoekArgument") zoekArgument: String,
         @Query("maxAantalHits") maxAantalHits: Int = 10
     ): LineDirectionsSearchResponseDto
 
-    // Fetch a specific lijnrichting detail (contains kleuren and public line number)
-    @GET("lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}")
+    @GET("delijn/DLKernOpenData/api/v1/lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}")
     suspend fun getLineDirectionDetail(
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("lijnnummer") lijnnummer: String,
         @Path("richting") richting: String
     ): LineDirectionDetailDto
 
-    // Fetch stops for a specific line direction so the full route can be drawn on a map
-    @GET("lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}/haltes")
+    @GET("delijn/DLKernOpenData/api/v1/lijnen/{entiteitnummer}/{lijnnummer}/lijnrichtingen/{richting}/haltes")
     suspend fun getLineDirectionStops(
         @Path("entiteitnummer") entiteitnummer: String,
         @Path("lijnnummer") lijnnummer: String,
         @Path("richting") richting: String
     ): LineDirectionStopsResponseDto
+
+    // GTFS realtime via proxy. Return raw body for custom parsing (JSON structure varies).
+    @GET("delijn/gtfs/v3/realtime")
+    suspend fun getGtfsRealtime(
+        @Query("json") json: Boolean = true,
+        @Query("position") position: Boolean = true,
+        @Query("vehicleid") vehicleId: String
+    ): ResponseBody
 }
