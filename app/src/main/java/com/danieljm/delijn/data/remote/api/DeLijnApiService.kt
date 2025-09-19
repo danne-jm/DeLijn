@@ -46,7 +46,7 @@ interface DeLijnApiService {
     suspend fun getNearbyStops(
         @Path("latitude") latitude: Double,
         @Path("longitude") longitude: Double,
-        @Query("radius") radius: Int = 2500,
+        @Query("radius") radius: Int = 1000,
         @Query("maxAantalHaltes") maxStops: Int = 50
     ): NearbyStopsResponseDto
 

@@ -33,6 +33,7 @@ class StopsViewModel(
 
     // Threshold in meters. A new stop fetch will only occur if the user moves more than this distance.
     private val LOCATION_CHANGE_THRESHOLD_METERS = 100f // 100m threshold
+    private val MAP_CENTER_CHANGE_THRESHOLD_METERS = 500f // 500m threshold for map navigation
 
     private var locationUpdatesJob: Job? = null
 
@@ -117,16 +118,29 @@ class StopsViewModel(
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
     }
 
-    fun fetchNearbyStops(latitude: Double, longitude: Double) {
-        Log.d("StopsViewModel", "Starting to fetch nearby stops for lat=$latitude, lon=$longitude")
+    fun fetchNearbyStops(latitude: Double, longitude: Double, fromMapNavigation: Boolean = false) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            // Create a location object to mark the position of this fetch
-            val fetchLocation = Location("").apply {
+            // Create a location object for the current request
+            val requestLocation = Location("").apply {
                 this.latitude = latitude
                 this.longitude = longitude
             }
-            lastFetchedLocation = fetchLocation
+
+            // If the fetch is from map navigation, check if we've moved enough
+            if (fromMapNavigation) {
+                val distance = lastFetchedLocation?.distanceTo(requestLocation) ?: Float.MAX_VALUE
+                if (distance < MAP_CENTER_CHANGE_THRESHOLD_METERS) {
+                    Log.d("StopsViewModel", "Skipping map-based fetch; distance ($distance m) is less than threshold (${MAP_CENTER_CHANGE_THRESHOLD_METERS}m).")
+                    return@launch
+                }
+            }
+
+            Log.d("StopsViewModel", "Starting to fetch nearby stops for lat=$latitude, lon=$longitude")
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+
+            // Mark the position of this fetch
+            lastFetchedLocation = requestLocation
+
             try {
                 val stops = withContext(Dispatchers.IO) { getNearbyStopsUseCase(latitude, longitude) }
                 _uiState.value = _uiState.value.copy(

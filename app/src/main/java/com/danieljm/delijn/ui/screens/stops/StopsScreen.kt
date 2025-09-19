@@ -131,7 +131,7 @@ fun StopsScreen(
             delay(700L)
             // If still the same center after debounce, fetch
             if (pendingMapCenter == center) {
-                viewModel.fetchNearbyStops(center.first, center.second)
+                viewModel.fetchNearbyStops(center.first, center.second, fromMapNavigation = true)
                 // clear pending
                 pendingMapCenter = null
             }
