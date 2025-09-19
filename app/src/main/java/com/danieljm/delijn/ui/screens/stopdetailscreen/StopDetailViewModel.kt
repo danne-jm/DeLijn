@@ -247,12 +247,46 @@ class StopDetailViewModel(
                     if (t > 0L) t > cutoff else true
                 }
 
-                // Do not update global polylines/busPositions on refresh; keep map empty until user selects a line
+                // After fetching new arrivals, also refresh the positions of currently relevant buses
+                val vehicleIdsToRefresh = when {
+                    // If a specific bus is selected, only refresh that one
+                    _uiState.value.busVehicleId != null -> listOfNotNull(_uiState.value.busVehicleId)
+                    // If a line is selected, refresh all vehicles for that line
+                    _uiState.value.selectedLineId != null -> {
+                        filtered.filter { it.lineId == _uiState.value.selectedLineId }
+                            .mapNotNull { it.vrtnum }
+                            .distinct()
+                    }
+                    // Otherwise, refresh all vehicles from the new arrivals list
+                    else -> filtered.mapNotNull { it.vrtnum }.distinct()
+                }
+
+                val refreshedBusPositions = mutableListOf<BusPosition>()
+                if (vehicleIdsToRefresh.isNotEmpty()) {
+                    for (vid in vehicleIdsToRefresh) {
+                        try {
+                            val pos = getVehiclePositionUseCase(vid)
+                            if (pos != null) {
+                                refreshedBusPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                            }
+                        } catch (_: Exception) { /* ignore */ }
+                    }
+                }
+
+                // Update the appropriate bus position state based on selection
+                if (_uiState.value.selectedLineId != null || _uiState.value.busVehicleId != null) {
+                    _uiState.value = _uiState.value.copy(selectedBusPositions = refreshedBusPositions)
+                } else {
+                    _uiState.value = _uiState.value.copy(busPositions = refreshedBusPositions)
+                }
+
+                // Update all arrivals and other state
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     allArrivals = filtered,
                     servedLines = servedLines,
-                    lastArrivalsRefreshMillis = System.currentTimeMillis()
+                    lastArrivalsRefreshMillis = System.currentTimeMillis(),
+                    vehiclesWithGps = _uiState.value.vehiclesWithGps + refreshedBusPositions.map { it.vehicleId }.toSet()
                 )
 
                 // Recompute floating selector data after arrivals refresh using current known bus positions
