@@ -225,6 +225,8 @@ fun StopsScreen(
                     onClick = {
                         if (hasLocationPermission) {
                             // When user taps the FAB, re-enable following the user and center map on their current location
+                            // This no longer forces a GPS refresh, just switches back to GPS mode
+                            viewModel.centerOnUserLocation()
                             userIsNavigatingMap = false
 
                             if (userLocation != null) {
@@ -234,8 +236,6 @@ fun StopsScreen(
                                     centerLongitude = userLocation.longitude,
                                     zoom = 18.0
                                 )
-                                // Also fetch stops for the user's location
-                                viewModel.fetchNearbyStops(userLocation.latitude, userLocation.longitude)
                             } else {
                                 viewModel.startLocationUpdates(context)
                                 pendingCenterOnLocation = true

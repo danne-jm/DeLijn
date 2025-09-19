@@ -30,12 +30,31 @@ class StopsViewModel(
     val uiState: StateFlow<StopsUiState> = _uiState.asStateFlow()
 
     private var lastFetchedLocation: Location? = null
+    private var isFollowingUserLocation = true // Track if we're following user's GPS or map navigation
 
     // Threshold in meters. A new stop fetch will only occur if the user moves more than this distance.
     private val LOCATION_CHANGE_THRESHOLD_METERS = 100f // 100m threshold
     private val MAP_CENTER_CHANGE_THRESHOLD_METERS = 500f // 500m threshold for map navigation
 
     private var locationUpdatesJob: Job? = null
+
+    init {
+        // Load cached stops immediately on initialization for faster startup
+        loadCachedStops()
+    }
+
+    private fun loadCachedStops() {
+        viewModelScope.launch {
+            try {
+                val cachedStops = withContext(Dispatchers.IO) { getCachedStopsUseCase() }
+                if (cachedStops.isNotEmpty()) {
+                    _uiState.value = _uiState.value.copy(nearbyStops = cachedStops)
+                }
+            } catch (e: Exception) {
+                Log.w("StopsViewModel", "Failed to load cached stops", e)
+            }
+        }
+    }
 
     @SuppressLint("MissingPermission")
     fun startLocationUpdates(context: Context) {
@@ -55,9 +74,12 @@ class StopsViewModel(
                 if (last != null) {
                     _uiState.value = _uiState.value.copy(userLocation = last)
 
-                    val distanceSinceFetch = lastFetchedLocation?.distanceTo(last) ?: Float.MAX_VALUE
-                    if (distanceSinceFetch > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
-                        fetchNearbyStops(last.latitude, last.longitude)
+                    // Only fetch if we're following user location and haven't fetched nearby
+                    if (isFollowingUserLocation) {
+                        val distanceSinceFetch = lastFetchedLocation?.distanceTo(last) ?: Float.MAX_VALUE
+                        if (distanceSinceFetch > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
+                            fetchNearbyStops(last.latitude, last.longitude)
+                        }
                     }
                 }
 
@@ -69,9 +91,12 @@ class StopsViewModel(
                         _uiState.value = _uiState.value.copy(userLocation = newLocation)
                     }
 
-                    val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
-                    if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
-                        fetchNearbyStops(newLocation.latitude, newLocation.longitude)
+                    // Only fetch if we're following user location
+                    if (isFollowingUserLocation) {
+                        val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
+                        if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
+                            fetchNearbyStops(newLocation.latitude, newLocation.longitude)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -128,6 +153,7 @@ class StopsViewModel(
 
             // If the fetch is from map navigation, check if we've moved enough
             if (fromMapNavigation) {
+                isFollowingUserLocation = false // Switch to map navigation mode
                 val distance = lastFetchedLocation?.distanceTo(requestLocation) ?: Float.MAX_VALUE
                 if (distance < MAP_CENTER_CHANGE_THRESHOLD_METERS) {
                     Log.d("StopsViewModel", "Skipping map-based fetch; distance ($distance m) is less than threshold (${MAP_CENTER_CHANGE_THRESHOLD_METERS}m).")
@@ -153,6 +179,15 @@ class StopsViewModel(
                     error = "Failed to fetch nearby stops: ${e.message}",
                 )
             }
+        }
+    }
+
+    fun centerOnUserLocation() {
+        // This method switches back to following user location
+        isFollowingUserLocation = true
+        val userLocation = _uiState.value.userLocation
+        if (userLocation != null) {
+            fetchNearbyStops(userLocation.latitude, userLocation.longitude)
         }
     }
 

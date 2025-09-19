@@ -28,13 +28,15 @@ import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
-import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
+import com.danieljm.delijn.data.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProviderImpl
+import com.danieljm.delijn.ui.screens.stops.StopsViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
-import com.danieljm.delijn.ui.screens.routedetail.RouteDetailViewModel
 import com.danieljm.delijn.ui.screens.search.SearchViewModel
 import com.danieljm.delijn.ui.screens.searchdetail.SearchDetailViewModel
+import com.danieljm.delijn.ui.screens.busdetail.BusDetailViewModel
+import com.danieljm.delijn.ui.screens.routedetail.RouteDetailViewModel
 import com.danieljm.delijn.ui.screens.settings.SettingsViewModel
-import com.danieljm.delijn.ui.screens.stops.StopsViewModel
 import com.danieljm.delijn.ui.screens.stopdetailscreen.StopDetailViewModel
 import com.danieljm.delijn.ui.screens.plan.PlanViewModel
 import com.danieljm.delijn.ui.screens.plan.PlanRepository
@@ -48,13 +50,24 @@ import com.danieljm.delijn.utils.Constants
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
-
-// New imports for location provider
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.danieljm.delijn.data.location.LocationProvider
-import com.danieljm.delijn.data.location.LocationProviderImpl
 import com.danieljm.delijn.domain.usecase.GetRouteGeometryUseCase
+import androidx.room.Room
+
+val databaseModule = module {
+    single {
+        Room.databaseBuilder(
+            androidContext(),
+            AppDatabase::class.java,
+            "delijn-database"
+        ).build()
+    }
+
+    single { get<AppDatabase>().stopDao() }
+    single { get<AppDatabase>().busDao() }
+    single { get<AppDatabase>().routeDao() }
+}
 
 val appModule = module {
     // ViewModel for shared map state
@@ -94,29 +107,29 @@ val appModule = module {
     single { GetNearbyStopsUseCase(get()) }
     single { GetCachedStopsUseCase(get()) }
     single { GetLineDirectionsForStopUseCase(get()) }
-    // New search use-case for fetching public line number and colors by omschrijving
     single { GetLineDirectionsSearchUseCase(get()) }
-    // Use-case to fetch a single lijnrichting detail (contains kleuren and publiek nummer)
     single { GetLineDirectionDetailUseCase(get()) }
-    // Use-case to fetch stops (haltes) for a specific lijnrichting to draw route polylines
     single { GetLineDirectionStopsUseCase(get()) }
-    // Vehicle position use-case
     single { GetVehiclePositionUseCase(get()) }
-    // Route geometry use-case
     single<GetRouteGeometryUseCase> { GetRouteGeometryUseCase(get()) }
 
     // Provide FusedLocationProviderClient and LocationProvider implementation
     single<FusedLocationProviderClient> { LocationServices.getFusedLocationProviderClient(androidContext()) }
     single<LocationProvider> { LocationProviderImpl(get()) }
+}
 
+val viewModelsModule = module {
     // ViewModels
     viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get<LocationProvider>()) }
+    viewModel { HomeViewModel() }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }
     viewModel { RouteDetailViewModel(get()) }
-    viewModel { HomeViewModel() }
     viewModel { SettingsViewModel() }
     viewModel { StopDetailViewModel(get<GetStopDetailsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get<GetRealTimeArrivalsUseCase>(), get<GetScheduledArrivalsUseCase>(), get<GetLineDirectionDetailUseCase>(), get<GetLineDirectionsSearchUseCase>(), get<GetLineDirectionStopsUseCase>(), get<GetVehiclePositionUseCase>(), get<GetRouteGeometryUseCase>()) }
     viewModel { PlanViewModel(get(), get(), get()) }
 }
+
+// Combine all modules into a single list for Koin
+val appModules = listOf(appModule, viewModelsModule, databaseModule)
