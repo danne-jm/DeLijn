@@ -102,11 +102,7 @@ class StopDetailViewModel(
                     // Enrich arrivals with public line number and background color by calling the line direction detail API per unique line-direction
                     val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = false)
 
-                    // Build polylines for the enriched lines using cached search results
-                    val polylines = try { buildPolylinesFromCache() } catch (_: Exception) { emptyList() }
-
-                    val busPositions = fetchAllBusPositions(enriched)
-
+                    // Do not populate polylines or bus positions on initial load — only on user selection
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         stopName = stopName,
@@ -114,9 +110,7 @@ class StopDetailViewModel(
                         allArrivals = enriched,
                         lastArrivalsRefreshMillis = System.currentTimeMillis(),
                         stopLatitude = stop.latitude,
-                        stopLongitude = stop.longitude,
-                        busPositions = busPositions,
-                        polylines = polylines
+                        stopLongitude = stop.longitude
                     )
                 } else {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "Stop not found")
@@ -209,18 +203,12 @@ class StopDetailViewModel(
                 // Enrich arrivals
                 val enriched = enrichArrivalsWithLineColors(arrivalsToShow, servedLines, forceRefresh = force)
 
-                // Build polylines (may reuse cache). If force refresh passed, cache was cleared earlier in enrich.
-                val polylines = try { buildPolylinesFromCache() } catch (_: Exception) { emptyList() }
-
-                val busPositions = fetchAllBusPositions(enriched)
-
+                // Do not update global polylines/busPositions on refresh; keep map empty until user selects a line
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     allArrivals = enriched,
                     servedLines = servedLines,
-                    lastArrivalsRefreshMillis = System.currentTimeMillis(),
-                    busPositions = busPositions,
-                    polylines = polylines
+                    lastArrivalsRefreshMillis = System.currentTimeMillis()
                 )
             } catch (e: Exception) {
                 Log.e("StopDetailViewModel", "Error during arrivals refresh", e)
@@ -231,6 +219,63 @@ class StopDetailViewModel(
 
     fun onRefreshAnimationComplete() {
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
+    }
+
+    // Select/deselect a line to display only that line's polylines and vehicle positions on the map
+    fun selectLine(lineId: String?) {
+        viewModelScope.launch {
+            if (lineId == null) {
+                _uiState.value = _uiState.value.copy(selectedLineId = null, selectedPolylines = emptyList(), selectedBusPositions = emptyList())
+                return@launch
+            }
+
+            val served = _uiState.value.servedLines.filter { it.lineId == lineId }
+            val polylines = mutableListOf<com.danieljm.delijn.domain.model.LinePolyline>()
+
+            // Fetch polylines for all directions of the selected line
+            for (s in served) {
+                try {
+                    val ent = s.entiteitnummer ?: continue
+                    val lijn = s.lineId
+                    val richting = s.richting
+                    val resp = try {
+                        getLineDirectionStopsUseCase(ent, lijn, richting)
+                    } catch (_: Exception) { null }
+                    val coords = resp?.haltes?.map { it.latitude to it.longitude } ?: emptyList()
+                    val routed: List<Pair<Double, Double>>? = try {
+                        if (coords.size >= 2) getRouteGeometryUseCase(coords) else null
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val finalCoords = routed ?: coords
+                    if (finalCoords.isNotEmpty()) {
+                        // try to extract a color for this line from arrivals cache if available
+                        val sampleArrival = _uiState.value.allArrivals.firstOrNull { it.lineId == lijn }
+                        val colorHex = sampleArrival?.lineBackgroundColorHex
+                        polylines.add(com.danieljm.delijn.domain.model.LinePolyline(id = "${ent}|${lijn}|${richting}", coordinates = finalCoords, colorHex = colorHex))
+                    }
+                } catch (_: Exception) {
+                    // ignore individual failures
+                }
+            }
+
+            // Fetch vehicle positions for arrivals matching this line
+            val arrivalsForLine = _uiState.value.allArrivals.filter { it.lineId == lineId && !it.vrtnum.isNullOrBlank() }
+            val busPositions = mutableListOf<BusPosition>()
+            for (a in arrivalsForLine) {
+                try {
+                    val vid = a.vrtnum ?: continue
+                    val pos = try { getVehiclePositionUseCase(vid) } catch (_: Exception) { null }
+                    if (pos != null) {
+                        busPositions.add(BusPosition(vid, pos.latitude, pos.longitude, pos.bearing))
+                    }
+                } catch (_: Exception) {
+                    // ignore
+                }
+            }
+
+            _uiState.value = _uiState.value.copy(selectedLineId = lineId, selectedPolylines = polylines, selectedBusPositions = busPositions)
+        }
     }
 
     private suspend fun enrichArrivalsWithLineColors(

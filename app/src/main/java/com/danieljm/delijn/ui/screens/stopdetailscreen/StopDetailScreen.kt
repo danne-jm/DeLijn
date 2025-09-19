@@ -40,6 +40,8 @@ import com.danieljm.delijn.ui.components.map.MapComponent
 import com.danieljm.delijn.ui.components.map.MapState
 import com.danieljm.delijn.ui.components.map.MapPolyline
 import com.danieljm.delijn.ui.components.stopdetails.BusArrivalsBottomSheet
+import com.danieljm.delijn.ui.components.stopdetails.FloatingBusItem
+import com.danieljm.delijn.ui.components.stopdetails.FloatingBusSelectorRow
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Heart
 import com.composables.icons.lucide.Lucide
@@ -94,8 +96,9 @@ fun StopDetailScreen(
     }
 
     // Create custom markers for buses
-    val busMarkers = remember(uiState.busPositions) {
-        uiState.busPositions.map { bus ->
+    val busMarkers = remember(uiState.busPositions, uiState.selectedBusPositions, uiState.selectedLineId) {
+        val positions = if (uiState.selectedLineId != null && uiState.selectedBusPositions.isNotEmpty()) uiState.selectedBusPositions else uiState.busPositions
+        positions.map { bus ->
             CustomMarker(
                 id = "bus_${bus.vehicleId}",
                 latitude = bus.latitude,
@@ -179,7 +182,7 @@ fun StopDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 stops = listOfNotNull(currentStop),
                 customMarkers = busMarkers,
-                polylines = uiState.polylines.map { lp ->
+                polylines = (if (uiState.selectedPolylines.isNotEmpty()) uiState.selectedPolylines else uiState.polylines).map { lp ->
                     MapPolyline(
                         id = lp.id,
                         coordinates = lp.coordinates,
@@ -192,6 +195,43 @@ fun StopDetailScreen(
                 mapCenterOffset = 250.0,
                 showUserLocationMarker = false,
                 darkMode = isSystemInDarkTheme()
+            )
+
+            // Floating bus selector row at top of screen (above map content)
+            val items = remember(uiState.allArrivals, uiState.servedLines) {
+                val byLine = uiState.allArrivals.groupBy { it.lineId }
+                val list = mutableListOf<FloatingBusItem>()
+                // First create items from arrivals (have colors)
+                for ((lineId, arrivals) in byLine) {
+                    val a = arrivals.first()
+                    list.add(
+                        FloatingBusItem(
+                            id = lineId,
+                            displayText = a.lineNumberPublic ?: lineId,
+                            bgHex = a.lineBackgroundColorHex,
+                            fgHex = a.lineForegroundColorHex
+                        )
+                    )
+                }
+                // Add any servedLines not present in arrivals (fallback)
+                for (s in uiState.servedLines) {
+                    if (list.none { it.id == s.lineId }) {
+                        list.add(FloatingBusItem(id = s.lineId, displayText = s.lineName, bgHex = null, fgHex = null))
+                    }
+                }
+                list
+            }
+
+            FloatingBusSelectorRow(
+                items = items,
+                selected = uiState.selectedLineId,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+                onToggle = { selectedId ->
+                    viewModel.selectLine(selectedId)
+                }
             )
 
             // Error overlay positioned at the top of the content area

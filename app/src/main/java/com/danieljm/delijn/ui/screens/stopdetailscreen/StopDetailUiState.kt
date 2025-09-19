@@ -17,6 +17,11 @@ data class StopDetailUiState(
     val error: String? = null,
     val servedLines: List<ServedLine> = emptyList(),
     val allArrivals: List<ArrivalInfo> = emptyList(),
+    // Currently selected line id for filtering polylines and bus markers
+    val selectedLineId: String? = null,
+    // Polylines and bus positions to display when a line is selected
+    val selectedPolylines: List<com.danieljm.delijn.domain.model.LinePolyline> = emptyList(),
+    val selectedBusPositions: List<BusPosition> = emptyList(),
     // Controls the refresh animation for the bottom sheet refresh icon
     val shouldAnimateRefresh: Boolean = false,
     // Timestamp in millis of the last arrivals refresh (automatic or manual)
