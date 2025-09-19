@@ -28,7 +28,7 @@ import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
-import com.danieljm.delijn.data.location.LocationProvider
+import com.danieljm.delijn.platform.location.LocationProvider
 import com.danieljm.delijn.data.location.LocationProviderImpl
 import com.danieljm.delijn.ui.screens.stops.StopsViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
@@ -55,30 +55,13 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.danieljm.delijn.domain.usecase.GetRouteGeometryUseCase
 import androidx.room.Room
 
-val databaseModule = module {
-    single {
-        Room.databaseBuilder(
-            androidContext(),
-            AppDatabase::class.java,
-            "delijn-database"
-        ).build()
-    }
-
-    single { get<AppDatabase>().stopDao() }
-    single { get<AppDatabase>().busDao() }
-    single { get<AppDatabase>().routeDao() }
-}
-
 val appModule = module {
-    // ViewModel for shared map state
-    single { MapViewModel() }
-
     // Network - provide OkHttpClient with both API keys and Retrofit with proxy base URL
     single { NetworkModule.provideOkHttpClient(Constants.API_KEY, Constants.REALTIME_API_KEY) }
     single { NetworkModule.provideRetrofit(get()) }
     single { NetworkModule.provideApiService(get()) }
 
-    // Database
+    // Database (single canonical provider)
     single<AppDatabase> { DatabaseModule.provideDatabase(androidContext()) }
     single<StopDao> { get<AppDatabase>().stopDao() }
     single<BusDao> { get<AppDatabase>().busDao() }
@@ -103,7 +86,7 @@ val appModule = module {
     single { GetRouteDetailsUseCase(get()) }
     single { GetRealTimeArrivalsUseCase(get()) }
     single { GetScheduledArrivalsUseCase(get()) }
-    single { GetRealTimeArrivalsForStopUseCase(get()) }
+    single { GetRealTimeArrivalsForStopUseCase(get(), get(), get()) }
     single { GetNearbyStopsUseCase(get()) }
     single { GetCachedStopsUseCase(get()) }
     single { GetLineDirectionsForStopUseCase(get()) }
@@ -120,6 +103,7 @@ val appModule = module {
 
 val viewModelsModule = module {
     // ViewModels
+    viewModel { MapViewModel() }
     viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get<LocationProvider>()) }
     viewModel { HomeViewModel() }
     viewModel { SearchViewModel(get()) }
@@ -132,4 +116,4 @@ val viewModelsModule = module {
 }
 
 // Combine all modules into a single list for Koin
-val appModules = listOf(appModule, viewModelsModule, databaseModule)
+val appModules = listOf(appModule, viewModelsModule)

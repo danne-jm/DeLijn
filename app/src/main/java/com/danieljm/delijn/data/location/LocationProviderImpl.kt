@@ -5,6 +5,7 @@ import android.location.Location
 import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.*
+import com.danieljm.delijn.platform.location.LocationProvider
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -34,12 +35,12 @@ class LocationProviderImpl(
                     if (location != null) trySend(location).isSuccess
                 }
                 .addOnFailureListener { ex ->
-                    Log.w("LocationProviderImpl", "lastLocation failed: ${ex.message}")
+                    Log.w("LocationProviderImpl", "lastLocation failed: ${'$'}{ex.message}")
                 }
         } catch (e: SecurityException) {
-            Log.w("LocationProviderImpl", "Permission missing for lastLocation: ${e.message}")
+            Log.w("LocationProviderImpl", "Permission missing for lastLocation: ${'$'}{e.message}")
         } catch (e: Exception) {
-            Log.w("LocationProviderImpl", "Exception while fetching lastLocation: ${e.message}")
+            Log.w("LocationProviderImpl", "Exception while fetching lastLocation: ${'$'}{e.message}")
         }
 
         val callback = object : LocationCallback() {
@@ -52,14 +53,14 @@ class LocationProviderImpl(
         try {
             fusedLocationClient.requestLocationUpdates(locRequest, callback, Looper.getMainLooper())
         } catch (e: SecurityException) {
-            Log.w("LocationProviderImpl", "Permission missing for requestLocationUpdates: ${e.message}")
+            Log.w("LocationProviderImpl", "Permission missing for requestLocationUpdates: ${'$'}{e.message}")
         }
 
         awaitClose {
             try {
                 fusedLocationClient.removeLocationUpdates(callback)
             } catch (e: Exception) {
-                Log.w("LocationProviderImpl", "Failed to remove location updates: ${e.message}")
+                Log.w("LocationProviderImpl", "Failed to remove location updates: ${'$'}{e.message}")
             }
         }
     }
@@ -84,10 +85,10 @@ class LocationProviderImpl(
                 }
             }
         } catch (e: SecurityException) {
-            Log.w("LocationProviderImpl", "Permission missing for getLastKnownLocation: ${e.message}")
+            Log.w("LocationProviderImpl", "Permission missing for getLastKnownLocation: ${'$'}{e.message}")
             null
         } catch (e: Exception) {
-            Log.w("LocationProviderImpl", "getLastKnownLocation failed: ${e.message}")
+            Log.w("LocationProviderImpl", "getLastKnownLocation failed: ${'$'}{e.message}")
             null
         }
     }

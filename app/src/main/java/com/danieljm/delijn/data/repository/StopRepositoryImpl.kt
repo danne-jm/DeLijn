@@ -7,7 +7,6 @@ import com.danieljm.delijn.data.mapper.NearbyStopMapper
 import com.danieljm.delijn.data.mapper.StopMapper
 import com.danieljm.delijn.data.mapper.toDomain
 import com.danieljm.delijn.data.remote.api.DeLijnApiService
-import com.danieljm.delijn.data.remote.dto.RealTimeDto
 import com.danieljm.delijn.domain.model.LineDirectionsResponse
 import com.danieljm.delijn.domain.model.LineDirectionsSearchResponse
 import com.danieljm.delijn.domain.model.Stop
@@ -80,47 +79,11 @@ class StopRepositoryImpl(
         return StopMapper.entityToDomain(entity)
     }
 
-    override suspend fun getRealTimeArrivals(stopId: String): List<RealTimeDto> {
-        // Determine entiteitnummer + haltenummer from cache or remote stop endpoint
-        val cached = dao.getStopById(stopId)
-        val stopEntity = if (cached != null) cached else {
-            try {
-                val dto = api.getStop(stopId)
-                val entity = StopMapper.dtoToEntity(dto)
-                dao.insertStops(listOf(entity))
-                entity
-            } catch (e: Exception) {
-                Log.w("StopRepository", "Unable to resolve stop $stopId for realtime arrivals", e)
-                return emptyList()
-            }
-        }
-
-        val entiteit = stopEntity.entiteitnummer ?: "3"
-        val haltenummer = stopEntity.halteNummer ?: stopEntity.id
-
-        return try {
-            val resp = api.getRealTimeArrivals(entiteit, haltenummer)
-            resp.halteDoorkomsten.flatMap { halte ->
-                halte.doorkomsten.map { doorkomst ->
-                    // Map minimal fields to legacy RealTimeDto
-                    RealTimeDto(
-                        stopId = stopId,
-                        line = doorkomst.lijnnummer,
-                        expectedArrivalEpochMs = 0L
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("StopRepository", "Error fetching realtime arrivals for $stopId (entiteit=$entiteit, halte=$haltenummer)", e)
-            emptyList()
-        }
-    }
-
     override suspend fun getNearbyStops(latitude: Double, longitude: Double): List<Stop> {
         Log.d("StopRepository", "Fetching nearby stops for coordinates: lat=$latitude, lon=$longitude")
         try {
             val response = api.getNearbyStops(latitude, longitude)
-            Log.d("StopRepository", "API response received: ${response.haltes.size} stops found")
+            Log.d("StopRepository", "API response received: ${'$'}{response.haltes.size} stops found")
             val mappedStops = response.haltes.map { NearbyStopMapper.dtoToDomain(it) }
 
             // Persist mapped stops into local database for quick access next time
@@ -136,12 +99,12 @@ class StopRepositoryImpl(
                     )
                 }
                 dao.insertStops(entities)
-                Log.d("StopRepository", "Inserted ${entities.size} stops into local DB")
+                Log.d("StopRepository", "Inserted ${'$'}{entities.size} stops into local DB")
             } catch (dbEx: Exception) {
                 Log.e("StopRepository", "Failed to insert stops into DB", dbEx)
             }
 
-            Log.d("StopRepository", "Successfully mapped ${mappedStops.size} stops")
+            Log.d("StopRepository", "Successfully mapped ${'$'}{mappedStops.size} stops")
             return mappedStops
         } catch (e: Exception) {
             Log.e("StopRepository", "Error fetching nearby stops", e)
@@ -199,7 +162,7 @@ class StopRepositoryImpl(
             }
             mapped
         } catch (e: Exception) {
-            Log.w("StopRepository", "getRouteGeometry failed: ${e.message}")
+            Log.w("StopRepository", "getRouteGeometry failed: ${'$'}{e.message}")
             null
         }
     }
