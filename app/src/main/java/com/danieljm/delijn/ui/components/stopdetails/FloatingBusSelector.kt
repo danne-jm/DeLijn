@@ -4,6 +4,7 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +50,8 @@ data class FloatingBusItem(
     val id: String,
     val displayText: String,
     val bgHex: String?,
-    val fgHex: String?
+    val fgHex: String?,
+    val borderHex: String?
 )
 
 // Represents a bus icon entry for the expanded selector: optional vehicleId + badge (1-based queue index) + GPS flag
@@ -89,6 +91,7 @@ fun FloatingBusSelectorRow(
             // parse colors with fallback
             val bgColor = try { item.bgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color(0xFF4CAF50) } catch (_: Exception) { Color(0xFF4CAF50) }
             val fgColor = try { item.fgHex?.let { Color(AndroidColor.parseColor(it)) } ?: Color.Black } catch (_: Exception) { Color.Black }
+            val borderColor = try { item.borderHex?.let { Color(AndroidColor.parseColor(it)) } } catch (_: Exception) { null }
 
             val containerColor = if (isSelected) bgColor else bgColor.copy(alpha = 0.35f)
             val textColor = if (isSelected) fgColor else fgColor.copy(alpha = 0.6f)
@@ -96,17 +99,26 @@ fun FloatingBusSelectorRow(
             // icons to show for this line (usually only populated for the selected line)
             val icons = itemsIcons[item.id] ?: emptyList()
 
+            // Build modifier: clip -> background -> optional border (so border is visible) -> clickable -> padding -> animate
+            var itemModifier = Modifier
+                .wrapContentWidth()
+                .height(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(containerColor)
+
+            if (borderColor != null) {
+                itemModifier = itemModifier.then(Modifier.border(width = 3.dp, color = borderColor, shape = RoundedCornerShape(8.dp)))
+            }
+
+            itemModifier = itemModifier
+                .clickable(onClick = {
+                    if (isSelected) onToggle(null) else onToggle(item.id)
+                })
+                .padding(horizontal = 12.dp)
+                .animateContentSize()
+
             Box(
-                modifier = Modifier
-                    .wrapContentWidth()
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(containerColor)
-                    .clickable(onClick = {
-                        if (isSelected) onToggle(null) else onToggle(item.id)
-                    })
-                    .padding(horizontal = 12.dp)
-                    .animateContentSize(),
+                modifier = itemModifier,
             ) {
                 Row(
                     modifier = Modifier
@@ -167,7 +179,7 @@ fun FloatingBusSelectorRow(
                                     // badge in top-right corner, use size and center text vertically+horizontally
                                     Surface(
                                         modifier = Modifier
-                                            .align(Alignment.TopEnd)
+                                            .align(Alignment.CenterEnd)
                                             .size(18.dp),
                                         shape = RoundedCornerShape(8.dp),
                                         color = Color.Black.copy(alpha = 0.85f)

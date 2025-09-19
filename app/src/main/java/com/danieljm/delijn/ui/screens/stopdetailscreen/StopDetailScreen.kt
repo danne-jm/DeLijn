@@ -212,14 +212,15 @@ fun StopDetailScreen(
                             id = lineId,
                             displayText = a.lineNumberPublic ?: lineId,
                             bgHex = a.lineBackgroundColorHex,
-                            fgHex = a.lineForegroundColorHex
+                            fgHex = a.lineForegroundColorHex,
+                            borderHex = a.lineBackgroundBorderColorHex
                         )
                     )
                 }
                 // Add any servedLines not present in arrivals (fallback)
                 for (s in uiState.servedLines) {
                     if (list.none { it.id == s.lineId }) {
-                        list.add(FloatingBusItem(id = s.lineId, displayText = s.lineName, bgHex = null, fgHex = null))
+                        list.add(FloatingBusItem(id = s.lineId, displayText = s.lineName, bgHex = null, fgHex = null, borderHex = null))
                     }
                 }
                 list
