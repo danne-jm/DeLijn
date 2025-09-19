@@ -150,20 +150,21 @@ fun FloatingBusSelectorRow(
                                 val badgeWidth = if (isDeparted) 64.dp else 18.dp
                                 val badgeHeight = if (isDeparted) 20.dp else 18.dp
 
-                                Box(modifier = Modifier
+                                // Build icon box modifier and only add clickable when the bus has GPS and a vehicleId
+                                val innerClickable = iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()
+                                var iconBoxModifier = Modifier
                                     .size(containerSize)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isThisVehicleSelected) fgColor.copy(alpha = 0.12f) else Color.Transparent)
-                                    .clickable(onClick = {
-                                        // Only select a vehicle if we actually have GPS for it.
-                                        if (iconEntry.hasGps && !iconEntry.vehicleId.isNullOrBlank()) {
-                                            if (isThisVehicleSelected) onBusSelected(null) else onBusSelected(iconEntry.vehicleId)
-                                        } else {
-                                            // no GPS available for this scheduled arrival; clear selection (no specific vehicle to show)
-                                            onBusSelected(null)
-                                        }
+
+                                if (innerClickable) {
+                                    iconBoxModifier = iconBoxModifier.clickable(onClick = {
+                                        // Select/deselect only when the vehicle has GPS
+                                        if (isThisVehicleSelected) onBusSelected(null) else onBusSelected(iconEntry.vehicleId)
                                     })
-                                ) {
+                                }
+
+                                Box(modifier = iconBoxModifier) {
                                     // Always show bus front icon (same for GPS-missing and GPS-available)
                                     Icon(
                                         imageVector = Lucide.BusFront,
@@ -174,7 +175,7 @@ fun FloatingBusSelectorRow(
                                             .align(Alignment.Center)
                                     )
 
-                                    // badge in top-right corner; for Departed entries make it wider
+                                    // badge in top-right corner; for Departed entries make it wider and add padding
                                     Surface(
                                         modifier = Modifier
                                             .align(Alignment.CenterEnd)
@@ -184,14 +185,10 @@ fun FloatingBusSelectorRow(
                                         color = Color.Black.copy(alpha = 0.85f)
                                     ) {
                                         val badgeInnerPadding = if (isDeparted) 6.dp else 0.dp
-
-                                        Box(
-                                            modifier = Modifier
-                                                .width(badgeWidth)
-                                                .height(badgeHeight)
-                                                .padding(horizontal = badgeInnerPadding),
-                                            contentAlignment = Alignment.Center
-                                        ) {
+                                        Box(modifier = Modifier
+                                            .width(badgeWidth)
+                                            .height(badgeHeight)
+                                            .padding(horizontal = badgeInnerPadding), contentAlignment = Alignment.Center) {
                                             Text(
                                                 text = iconEntry.badge,
                                                 color = Color.White,
