@@ -318,11 +318,23 @@ fun StopDetailScreen(
             }
 
             // Bottom Sheet positioned at the bottom
+
+            // Sort arrivals for the bottom sheet: prefer real-time arrival timestamp when available, otherwise fall back to expected/scheduled time
+            val sortedArrivals = remember(uiState.allArrivals) {
+                uiState.allArrivals.sortedWith(compareBy { a ->
+                    when {
+                        a.realArrivalTime > 0L -> a.realArrivalTime
+                        a.expectedArrivalTime > 0L -> a.expectedArrivalTime
+                        else -> Long.MAX_VALUE
+                    }
+                })
+            }
+
             BusArrivalsBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter),
-                arrivals = uiState.allArrivals,
+                arrivals = sortedArrivals,
                 isLoading = uiState.isLoading,
                 onHeightChanged = { /* no-op in detail screen */ },
                 listState = arrivalsListState,
@@ -330,7 +342,8 @@ fun StopDetailScreen(
                 stopId = uiState.stopId,
                 shouldAnimateRefresh = uiState.shouldAnimateRefresh,
                 onRefresh = { viewModel.refreshArrivals(force = true) },
-                onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() }
+                onRefreshAnimationComplete = { viewModel.onRefreshAnimationComplete() },
+                lastArrivalsRefreshMillis = uiState.lastArrivalsRefreshMillis
             )
         }
     }
