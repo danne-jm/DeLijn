@@ -3,79 +3,86 @@ package com.danieljm.delijn.ui.screens.stops
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
-import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
-import com.google.android.gms.location.*
+import com.danieljm.delijn.data.location.LocationProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class StopsViewModel(
     private val getNearbyStopsUseCase: GetNearbyStopsUseCase,
     private val getCachedStopsUseCase: GetCachedStopsUseCase,
-    private val getLineDirectionsForStopUseCase: GetLineDirectionsForStopUseCase
+    private val getLineDirectionsForStopUseCase: GetLineDirectionsForStopUseCase,
+    private val locationProvider: LocationProvider
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StopsUiState())
     val uiState: StateFlow<StopsUiState> = _uiState.asStateFlow()
 
-    private var fusedLocationClient: FusedLocationProviderClient? = null
     private var lastFetchedLocation: Location? = null
 
     // Threshold in meters. A new stop fetch will only occur if the user moves more than this distance.
-    private val LOCATION_CHANGE_THRESHOLD_METERS = 100f // Changed to 100m as requested
+    private val LOCATION_CHANGE_THRESHOLD_METERS = 100f // 100m threshold
 
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(locationResult: LocationResult) {
-            // Use the real location provided by the location services
-            val newLocation = locationResult.lastLocation
-            if (newLocation == null) {
-                Log.w("StopsViewModel", "Received null location from LocationResult")
-                return
-            }
-
-            val previousLocation = _uiState.value.userLocation
-
-            // Update UI state only when the location actually changed to avoid unnecessary recomposition
-            if (previousLocation == null || newLocation.distanceTo(previousLocation) > 1f) {
-                _uiState.value = _uiState.value.copy(userLocation = newLocation)
-            }
-
-            val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
-
-            // Fetch new stops only if the user has moved a significant distance, or it's the first location update.
-            if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
-                Log.d("StopsViewModel", "Location changed by ${distance}m. Fetching new stops.")
-                fetchNearbyStops(newLocation.latitude, newLocation.longitude)
-            }
-        }
-    }
+    private var locationUpdatesJob: Job? = null
 
     @SuppressLint("MissingPermission")
     fun startLocationUpdates(context: Context) {
-        if (fusedLocationClient == null) {
-            fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        // No-op if already collecting
+        if (locationUpdatesJob != null && locationUpdatesJob!!.isActive) return
+
+        locationUpdatesJob = viewModelScope.launch {
+            try {
+                // Emit last known location immediately if available
+                val last = try {
+                    locationProvider.getLastKnownLocation()
+                } catch (e: Exception) {
+                    Log.w("StopsViewModel", "Failed to get last known location: ${e.message}")
+                    null
+                }
+
+                if (last != null) {
+                    _uiState.value = _uiState.value.copy(userLocation = last)
+
+                    val distanceSinceFetch = lastFetchedLocation?.distanceTo(last) ?: Float.MAX_VALUE
+                    if (distanceSinceFetch > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
+                        fetchNearbyStops(last.latitude, last.longitude)
+                    }
+                }
+
+                // Collect continuous updates
+                locationProvider.locationUpdates().collect { newLocation ->
+                    val previousLocation = _uiState.value.userLocation
+
+                    if (previousLocation == null || newLocation.distanceTo(previousLocation) > 1f) {
+                        _uiState.value = _uiState.value.copy(userLocation = newLocation)
+                    }
+
+                    val distance = lastFetchedLocation?.distanceTo(newLocation) ?: Float.MAX_VALUE
+                    if (distance > LOCATION_CHANGE_THRESHOLD_METERS || lastFetchedLocation == null) {
+                        fetchNearbyStops(newLocation.latitude, newLocation.longitude)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("StopsViewModel", "Error while collecting location updates", e)
+            }
         }
-
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
-            .setWaitForAccurateLocation(false)
-            .setMinUpdateIntervalMillis(2000)
-            .setMaxUpdateDelayMillis(5000)
-            .build()
-
-        fusedLocationClient?.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     }
 
     fun stopLocationUpdates() {
-        fusedLocationClient?.removeLocationUpdates(locationCallback)
+        locationUpdatesJob?.cancel()
+        locationUpdatesJob = null
         Log.d("StopsViewModel", "Location updates stopped.")
     }
 
@@ -84,58 +91,26 @@ class StopsViewModel(
     fun forceLocationUpdateAndRefresh(context: Context) {
         Log.d("StopsViewModel", "Force refresh triggered")
 
-        // Set shouldAnimateRefresh to trigger the refresh animation
         _uiState.value = _uiState.value.copy(shouldAnimateRefresh = true)
 
-        if (fusedLocationClient == null) {
-            fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-        }
+        viewModelScope.launch {
+            try {
+                // Try last known location first, then wait for the next update if needed
+                val loc = locationProvider.getLastKnownLocation() ?: locationProvider.locationUpdates().firstOrNull()
 
-        // Request a fresh current location. If unavailable, fall back to lastLocation.
-        fusedLocationClient?.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            ?.addOnSuccessListener { location ->
-                if (location != null) {
-                    // Update UI state with new location
-                    _uiState.value = _uiState.value.copy(userLocation = location)
-
-                    // Force fetch new stops regardless of distance moved
-                    Log.d("StopsViewModel", "Force fetching stops at lat=${location.latitude}, lon=${location.longitude}")
-                    fetchNearbyStops(location.latitude, location.longitude)
+                if (loc != null) {
+                    _uiState.value = _uiState.value.copy(userLocation = loc)
+                    Log.d("StopsViewModel", "Force fetching stops at lat=${loc.latitude}, lon=${loc.longitude}")
+                    fetchNearbyStops(loc.latitude, loc.longitude)
                 } else {
-                    // Fallback: try last known location
-                    fusedLocationClient?.lastLocation
-                        ?.addOnSuccessListener { lastLoc ->
-                            if (lastLoc != null) {
-                                _uiState.value = _uiState.value.copy(userLocation = lastLoc)
-                                fetchNearbyStops(lastLoc.latitude, lastLoc.longitude)
-                            } else {
-                                Log.w("StopsViewModel", "Force refresh: Unable to obtain a location")
-                                _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
-                            }
-                        }
-                        ?.addOnFailureListener { ex ->
-                            Log.e("StopsViewModel", "Force refresh: Failed to get last known location", ex)
-                            _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
-                        }
+                    Log.w("StopsViewModel", "Force refresh: Unable to obtain a location")
+                    _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
                 }
+            } catch (e: Exception) {
+                Log.e("StopsViewModel", "Force refresh failed", e)
+                _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
             }
-            ?.addOnFailureListener { exception ->
-                Log.e("StopsViewModel", "Force refresh: Failed to get current location", exception)
-                // Try to fallback to last known location
-                fusedLocationClient?.lastLocation
-                    ?.addOnSuccessListener { lastLoc ->
-                        if (lastLoc != null) {
-                            _uiState.value = _uiState.value.copy(userLocation = lastLoc)
-                            fetchNearbyStops(lastLoc.latitude, lastLoc.longitude)
-                        } else {
-                            _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
-                        }
-                    }
-                    ?.addOnFailureListener { ex ->
-                        Log.e("StopsViewModel", "Force refresh: Failed to get last known location", ex)
-                        _uiState.value = _uiState.value.copy(shouldAnimateRefresh = false)
-                    }
-            }
+        }
     }
 
     // Function to reset the refresh animation flag

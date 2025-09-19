@@ -49,6 +49,12 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
+// New imports for location provider
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.danieljm.delijn.data.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProviderImpl
+
 val appModule = module {
     // ViewModel for shared map state
     single { MapViewModel() }
@@ -96,8 +102,12 @@ val appModule = module {
     // Vehicle position use-case
     single { GetVehiclePositionUseCase(get()) }
 
+    // Provide FusedLocationProviderClient and LocationProvider implementation
+    single<FusedLocationProviderClient> { LocationServices.getFusedLocationProviderClient(androidContext()) }
+    single<LocationProvider> { LocationProviderImpl(get()) }
+
     // ViewModels
-    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>()) }
+    viewModel { StopsViewModel(get<GetNearbyStopsUseCase>(), get<GetCachedStopsUseCase>(), get<GetLineDirectionsForStopUseCase>(), get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { SearchDetailViewModel(get(), get()) }
     viewModel { BusDetailViewModel(get()) }
