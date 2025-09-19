@@ -86,8 +86,8 @@ class StopDetailViewModel(
 
                     // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
                     // but keep arrivals with unknown timestamps.
-                    val tenMinutesMs = 2 * 60 * 1000L
-                    val cutoff = System.currentTimeMillis() - tenMinutesMs
+                    val twoMinutesMs = 2 * 60 * 1000L
+                    val cutoff = System.currentTimeMillis() - twoMinutesMs
                     val filtered = enriched.filter { arrival ->
                         val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
                         // If we have a timestamp, exclude arrivals that are 10 minutes old or older (strictly greater-than cutoff required to keep)
@@ -195,8 +195,8 @@ class StopDetailViewModel(
 
                 // Filter out arrivals that already occurred 10+ minutes ago to declutter the list,
                 // but keep arrivals with unknown timestamps.
-                val tenMinutesMs = 10 * 60 * 1000L
-                val cutoff = System.currentTimeMillis() - tenMinutesMs
+                val twoMinutesMs = 10 * 60 * 1000L
+                val cutoff = System.currentTimeMillis() - twoMinutesMs
                 val filtered = enriched.filter { arrival ->
                     val t = if (arrival.realArrivalTime > 0L) arrival.realArrivalTime else arrival.expectedArrivalTime
                     if (t > 0L) t > cutoff else true
