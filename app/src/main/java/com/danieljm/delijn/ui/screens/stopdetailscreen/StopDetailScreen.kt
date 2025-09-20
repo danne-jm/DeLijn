@@ -50,7 +50,7 @@ import org.koin.androidx.compose.koinViewModel
 
 // New imports for location handling via DI
 import android.location.Location
-import com.danieljm.delijn.platform.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProvider
 import org.koin.androidx.compose.get
 
 @OptIn(ExperimentalMaterial3Api::class)

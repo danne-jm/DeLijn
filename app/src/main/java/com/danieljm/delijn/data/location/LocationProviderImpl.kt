@@ -5,7 +5,7 @@ import android.location.Location
 import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.*
-import com.danieljm.delijn.platform.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProvider
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow

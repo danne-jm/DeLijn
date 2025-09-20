@@ -13,8 +13,4 @@ object DatabaseModule {
             .fallbackToDestructiveMigration()
             .build()
     }
-
-    fun provideStopDao(database: AppDatabase): StopDao = database.stopDao()
-    fun provideBusDao(database: AppDatabase): BusDao = database.busDao()
-    fun provideRouteDao(database: AppDatabase): RouteDao = database.routeDao()
 }

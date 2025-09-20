@@ -9,7 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.danieljm.delijn.domain.usecase.GetCachedStopsUseCase
 import com.danieljm.delijn.domain.usecase.GetLineDirectionsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetNearbyStopsUseCase
-import com.danieljm.delijn.platform.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow

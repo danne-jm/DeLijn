@@ -1,4 +1,4 @@
-package com.danieljm.delijn.platform.location
+package com.danieljm.delijn.data.location
 
 import android.location.Location
 import com.google.android.gms.location.LocationRequest
@@ -13,4 +13,3 @@ interface LocationProvider {
     fun locationUpdates(request: LocationRequest? = null): Flow<Location>
     suspend fun getLastKnownLocation(): Location?
 }
-

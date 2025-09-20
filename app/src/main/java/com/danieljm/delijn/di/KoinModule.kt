@@ -28,7 +28,7 @@ import com.danieljm.delijn.domain.usecase.GetStopDetailsUseCase
 import com.danieljm.delijn.domain.usecase.GetRealTimeArrivalsForStopUseCase
 import com.danieljm.delijn.domain.usecase.GetVehiclePositionUseCase
 import com.danieljm.delijn.domain.usecase.SearchStopsUseCase
-import com.danieljm.delijn.platform.location.LocationProvider
+import com.danieljm.delijn.data.location.LocationProvider
 import com.danieljm.delijn.data.location.LocationProviderImpl
 import com.danieljm.delijn.ui.screens.stops.StopsViewModel
 import com.danieljm.delijn.ui.screens.home.HomeViewModel
