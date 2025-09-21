@@ -1,6 +1,11 @@
 package com.danieljm.bussin.domain.repository
 
-import com.danieljm.bussin.domain.model.*
+import com.danieljm.bussin.domain.model.Arrival
+import com.danieljm.bussin.domain.model.FinalSchedule
+import com.danieljm.bussin.domain.model.LineDirection
+import com.danieljm.bussin.domain.model.LineStop
+import com.danieljm.bussin.domain.model.Stop
+import com.danieljm.bussin.domain.model.VehiclePosition
 
 /**
  * Domain-level repository contract. Keep this interface free of Android and network types.
@@ -32,4 +37,7 @@ interface BussinRepository {
     suspend fun getFinalScheduleTyped(stop: String, datum: String, maxAantalDoorkomsten: Int?): Result<FinalSchedule>
     suspend fun getVehiclePositionTyped(vehicleId: String): Result<VehiclePosition>
     suspend fun getVehicleRouteTyped(vehicleId: String, halteNumbers: String?, lijnnummer: String?, richting: String?): Result<com.danieljm.bussin.domain.model.VehicleRoute>
+
+    // Local cached reads for nearby stops (bounding-box style)
+    suspend fun getCachedNearbyStops(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): Result<List<Stop>>
 }

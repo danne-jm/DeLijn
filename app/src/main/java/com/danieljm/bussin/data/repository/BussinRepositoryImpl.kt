@@ -5,10 +5,28 @@ import com.danieljm.bussin.data.local.dao.LineStopDao
 import com.danieljm.bussin.data.local.dao.StopDao
 import com.danieljm.bussin.data.local.entity.LineStopEntity
 import com.danieljm.bussin.data.local.entity.StopEntity
-import com.danieljm.bussin.data.mapper.*
+import com.danieljm.bussin.data.mapper.ArrivalsMapper
+import com.danieljm.bussin.data.mapper.FinalScheduleMapper
+import com.danieljm.bussin.data.mapper.LineDirectionMapper
+import com.danieljm.bussin.data.mapper.LineStopMapper
+import com.danieljm.bussin.data.mapper.StopMapper
+import com.danieljm.bussin.data.mapper.VehicleMapper
 import com.danieljm.bussin.data.remote.api.BussinApiService
-import com.danieljm.bussin.data.remote.dto.*
-import com.danieljm.bussin.domain.model.*
+import com.danieljm.bussin.data.remote.dto.ArrivalsResponseDto
+import com.danieljm.bussin.data.remote.dto.FinalScheduleResponseDto
+import com.danieljm.bussin.data.remote.dto.HalteDto
+import com.danieljm.bussin.data.remote.dto.LineSearchResponseDto
+import com.danieljm.bussin.data.remote.dto.LineStopsResponseDto
+import com.danieljm.bussin.data.remote.dto.NearbyStopsResponseDto
+import com.danieljm.bussin.data.remote.dto.VehiclePositionDto
+import com.danieljm.bussin.data.remote.dto.VehicleRouteResponseDto
+import com.danieljm.bussin.domain.model.Arrival
+import com.danieljm.bussin.domain.model.FinalSchedule
+import com.danieljm.bussin.domain.model.LineDirection
+import com.danieljm.bussin.domain.model.LineStop
+import com.danieljm.bussin.domain.model.Stop
+import com.danieljm.bussin.domain.model.VehiclePosition
+import com.danieljm.bussin.domain.model.VehicleRoute
 import com.danieljm.bussin.domain.repository.BussinRepository
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -298,6 +316,19 @@ class BussinRepositoryImpl @Inject constructor(
                 }
             } catch (e: IOException) {
                 Result.failure(e)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    // Local cache read for nearby stops using DAO bounding-box query
+    override suspend fun getCachedNearbyStops(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): Result<List<Stop>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val entities = stopDao.getWithinBounds(minLat, maxLat, minLon, maxLon)
+                val stops = entities.map { StopEntity.toDomain(it) }
+                Result.success(stops)
             } catch (e: Exception) {
                 Result.failure(e)
             }

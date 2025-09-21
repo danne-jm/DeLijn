@@ -3,16 +3,25 @@ package com.danieljm.bussin.ui.components.map
 import android.content.Context
 import android.location.Location
 import android.view.MotionEvent
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
+import com.danieljm.bussin.domain.model.Stop
+import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.cachemanager.CacheManager
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import com.danieljm.bussin.domain.model.Stop
 
 /**
  * A simple Compose wrapper around osmdroid's MapView.
@@ -33,6 +42,7 @@ fun OpenStreetMap(
     // Provides the new center's latitude and longitude.
     onMapCenterChanged: ((Double, Double) -> Unit)? = null,
 ) {
+    val composeCtx = LocalContext.current
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
     val userMarkerRef = remember { mutableStateOf<Marker?>(null) }
 
@@ -192,16 +202,60 @@ fun OpenStreetMap(
         if (recenterTrigger > 0) {
             userLocation?.let { loc ->
                 try {
-                    try { mapViewRef.value?.controller?.setZoom(18.0) } catch (_: Throwable) {}
-                    mapViewRef.value?.controller?.animateTo(GeoPoint(loc.latitude, loc.longitude))
-                    // indicate we had a real center event
-                    didAutoCenter.value = true
-                    // clear userInteraction flag so subsequent auto-centers (if any) can run
-                    userInteracted.value = false
-                } catch (_: Throwable) { }
-            }
-        }
-    }
+                    val mv = mapViewRef.value ?: return@let
+
+                    // Step 1: animate the map center to the user's location without changing zoom
+                    val targetPoint = GeoPoint(loc.latitude, loc.longitude)
+                    try { mv.controller.animateTo(targetPoint) } catch (_: Throwable) {}
+
+                    // Wait until the map center is essentially above the user (or timeout)
+                    var attempts = 0
+                    val centerThresholdMeters = 25.0
+                    while (attempts < 40) {
+                        val center = mv.mapCenter
+                        val results = FloatArray(1)
+                        try {
+                            Location.distanceBetween(center.latitude, center.longitude, loc.latitude, loc.longitude, results)
+                        } catch (_: Throwable) { results[0] = 0f }
+                        if (results[0].toDouble() <= centerThresholdMeters) break
+                        attempts++
+                        delay(50)
+                    }
+
+                    // Step 2: smooth / gradual zoom-in to a target zoom level
+                    val targetZoom = 18.0
+                    // Smooth incremental zoom: small steps with short delays for a smoother visual effect.
+                    // This handles zooming both up and down and caps iterations to avoid hangs.
+                    try {
+                        var currentZoom = try { mv.zoomLevelDouble } catch (_: Throwable) { targetZoom }
+                        val step = 0.18 // zoom step per iteration (smaller -> smoother)
+                        val delayMs = 22L // delay between steps (ms)
+                        var iterations = 0
+                        val maxIterations = 80
+                        while (kotlin.math.abs(currentZoom - targetZoom) > 0.01 && iterations < maxIterations) {
+                            val diff = targetZoom - currentZoom
+                            val delta = when {
+                                kotlin.math.abs(diff) < step -> diff
+                                diff > 0 -> step
+                                else -> -step
+                            }
+                            currentZoom += delta
+                            try { mv.controller.setZoom(currentZoom) } catch (_: Throwable) {}
+                            iterations++
+                            kotlinx.coroutines.delay(delayMs)
+                        }
+                        // Ensure exact final zoom
+                        try { mv.controller.setZoom(targetZoom) } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+
+                     // indicate we had a real center event
+                     didAutoCenter.value = true
+                     // clear userInteraction flag so subsequent auto-centers (if any) can run
+                     userInteracted.value = false
+                 } catch (_: Throwable) { }
+             }
+         }
+     }
 
 
     DisposableEffect(Unit) {
@@ -210,5 +264,47 @@ fun OpenStreetMap(
             mapViewRef.value?.onPause()
             mapViewRef.value?.onDetach()
         }
+    }
+
+    // Prefetch tiles into osmdroid's tile cache at most once every 24h to speed up map rendering.
+    LaunchedEffect(composeCtx, userLocation, mapViewRef.value) {
+        try {
+            val prefs = composeCtx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+            val last = prefs.getLong("last_tile_cache_ms", 0L)
+            val now = System.currentTimeMillis()
+            val oneDayMs = 24L * 60L * 60L * 1000L
+            if (now - last < oneDayMs) return@LaunchedEffect
+
+            val mv = mapViewRef.value ?: return@LaunchedEffect
+
+            // Define a small bounding box around either the user's location or the current map center.
+            val latDelta = 0.03
+            val lonDelta = 0.03
+            val bbox = if (userLocation != null) {
+                BoundingBox(
+                    userLocation.latitude + latDelta,
+                    userLocation.longitude - lonDelta,
+                    userLocation.latitude - latDelta,
+                    userLocation.longitude + lonDelta
+                )
+            } else {
+                val c = mv.mapCenter
+                BoundingBox(c.latitude + latDelta, c.longitude - lonDelta, c.latitude - latDelta, c.longitude + lonDelta)
+            }
+
+            // Prefetch tiles for a reasonable zoom range around the current zoom.
+            val currentZoom = try { mv.zoomLevelDouble.toInt() } catch (_: Throwable) { 15 }
+            val minZoom = kotlin.math.max(3, currentZoom - 3)
+            val maxZoom = kotlin.math.min(20, currentZoom + 2)
+
+            try {
+                val cacheManager = CacheManager(mv)
+                // downloadAreaAsync will populate the tile cache; progress callback is optional
+                cacheManager.downloadAreaAsync(composeCtx, bbox, minZoom, maxZoom)
+                prefs.edit().putLong("last_tile_cache_ms", now).apply()
+            } catch (_: Throwable) {
+                // ignore caching errors; it's non-fatal
+            }
+        } catch (_: Throwable) { }
     }
 }

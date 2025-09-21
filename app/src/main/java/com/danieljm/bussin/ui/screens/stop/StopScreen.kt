@@ -17,11 +17,18 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.Text
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -108,7 +115,12 @@ fun StopScreen(
         val fine = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarse = perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         hasLocationPermission = fine || coarse
-        if (!hasLocationPermission) {
+        if (hasLocationPermission) {
+            // If the user granted permission via the FAB flow, start location updates and
+            // mark that we should center on arrival (and fetch nearby stops).
+            mapViewModel.startLocationUpdates(ctx)
+            pendingCenterOnLocation.value = true
+        } else {
             coroutineScope.launch {
                 try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Throwable) {}
                 snackbarHostState.showSnackbar("Location permission denied")
@@ -120,7 +132,11 @@ fun StopScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms: Map<String, Boolean> ->
         val any = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (any) mapViewModel.startLocationUpdates(ctx) else {
+        if (any) {
+            mapViewModel.startLocationUpdates(ctx)
+            // Center and fetch when the location arrives
+            pendingCenterOnLocation.value = true
+        } else {
             coroutineScope.launch {
                 try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Throwable) {}
                 snackbarHostState.showSnackbar("Location permission denied")
@@ -141,7 +157,13 @@ fun StopScreen(
     // If we had a pending center request and now we have a location, trigger the recenter
     LaunchedEffect(userLocation, pendingCenterOnLocation.value) {
         if (pendingCenterOnLocation.value && userLocation != null) {
+            // Trigger recenter on the map and also fetch nearby stops for the new location.
             recenterTrigger.value += 1
+            try {
+                userLocation?.let { loc ->
+                    stopViewModel.loadNearbyStops(stop = "", lat = loc.latitude, lon = loc.longitude)
+                }
+            } catch (_: Throwable) {}
             pendingCenterOnLocation.value = false
         }
     }
@@ -236,8 +258,11 @@ fun StopScreen(
 
                     if (hasLocationPermission) {
                         // One-time recenter: if we have a location, request recenter immediately
-                        if (userLocation != null) {
+                        val loc = userLocation
+                        if (loc != null) {
                             recenterTrigger.value += 1
+                            // Also request nearby stops for the user's current location immediately
+                            try { stopViewModel.loadNearbyStops(stop = "", lat = loc.latitude, lon = loc.longitude) } catch (_: Throwable) {}
                             pendingCenterOnLocation.value = false
                         } else {
                             // start location updates and wait to center when location arrives

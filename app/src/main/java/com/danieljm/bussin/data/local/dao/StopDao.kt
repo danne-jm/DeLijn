@@ -16,5 +16,10 @@ interface StopDao {
 
     @Query("SELECT * FROM stops WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): StopEntity?
-}
 
+    // Return stops within a simple lat/lon bounding box. This is used for fast local
+    // lookups when we want to draw cached markers immediately while the network
+    // request performs a background refresh.
+    @Query("SELECT * FROM stops WHERE latitude BETWEEN :minLat AND :maxLat AND longitude BETWEEN :minLon AND :maxLon ORDER BY distance ASC")
+    suspend fun getWithinBounds(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<StopEntity>
+}
