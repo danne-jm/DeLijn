@@ -77,7 +77,12 @@ fun BottomSheet(
     isLoading: Boolean = false,
     shouldAnimateRefresh: Boolean = false,
     onRefreshAnimationComplete: (() -> Unit)? = null,
-    listState: LazyListState
+    listState: LazyListState,
+    // Optional slots for header and body. If null, the BottomSheet falls back to the existing
+    // header (title + refresh icon) and body (list of stops) implementations so current
+    // callers continue to work without changes.
+    headerContent: (@Composable (rotationValue: Float, isRefreshing: Boolean, onRefresh: (() -> Unit)?) -> Unit)? = null,
+    bodyContent: (@Composable (listState: LazyListState, bottomContentPadding: Dp) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val windowInfo = LocalWindowInfo.current
@@ -101,7 +106,6 @@ fun BottomSheet(
 
     // Use rememberSaveable to preserve the height across navigation
     var heightPx by rememberSaveable { mutableStateOf(initialPx) }
-    var isDragging by remember { mutableStateOf(false) }
 
     val heightDp by remember(heightPx) { derivedStateOf { with(density) { heightPx.toDp() } } }
     val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BottomSheetHeightAnimation")
@@ -178,11 +182,7 @@ fun BottomSheet(
                         .width(36.dp)
                         .height(6.dp)
                         .pointerInput(Unit) {
-                            detectVerticalDragGestures(
-                                onDragStart = { isDragging = true },
-                                onDragEnd = { isDragging = false },
-                                onDragCancel = { isDragging = false }
-                            ) { _, dragAmount ->
+                            detectVerticalDragGestures { _, dragAmount ->
                                 val newHeight = (heightPx - dragAmount).coerceIn(collapsedPx, expandedPx)
                                 heightPx = newHeight
                             }
@@ -191,63 +191,75 @@ fun BottomSheet(
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Nearby Stops",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Icon(
-                    imageVector = Lucide.RefreshCw,
-                    contentDescription = "Refresh",
-                    tint = Color.White.copy(alpha = 0.8f),
+            // Header slot (optional). If caller provided a headerContent composable, use that.
+            if (headerContent != null) {
+                headerContent(rotation.value, rotation.isRunning, onRefresh)
+            } else {
+                // Default header: title + refresh icon
+                Row(
                     modifier = Modifier
-                        .size(28.dp)
-                        .padding(start = 8.dp)
-                        .graphicsLayer { rotationZ = rotation.value }
-                        .clickable(enabled = onRefresh != null && !rotation.isRunning && !isLoading) {
-                            onRefresh?.invoke()
-                        }
-                )
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Nearby Stops",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Lucide.RefreshCw,
+                        contentDescription = "Refresh",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .size(28.dp)
+                            .padding(start = 8.dp)
+                            .graphicsLayer { rotationZ = rotation.value }
+                            .clickable(enabled = onRefresh != null && !rotation.isRunning && !isLoading) {
+                                onRefresh?.invoke()
+                            }
+                    )
+                }
             }
 
-            if (sortedStops.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No nearby stops found.", color = Color.White.copy(alpha = 0.7f))
-                }
+            // Body slot (optional). If caller provided a bodyContent composable, use that.
+            if (bodyContent != null) {
+                bodyContent(listState, bottomContentPadding)
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    state = listState,
-                    contentPadding = PaddingValues(bottom = bottomContentPadding)
-                ) {
-                    items(sortedStops, key = { it.id }) { stop ->
-                        StopCard(
-                            stop = stop,
-                            userLat = userLat,
-                            userLon = userLon,
-                            onClick = { onStopClick(stop) }
-                        )
+                // Default body: list of stops or empty state
+                if (sortedStops.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No nearby stops found.", color = Color.White.copy(alpha = 0.7f))
                     }
-                    item {
-                        // Keep a small spacer to provide breathing room after the last item - the
-                        // contentPadding ensures it's possible to fully reveal the last entry.
-                        Spacer(modifier = Modifier.height(32.dp))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        state = listState,
+                        contentPadding = PaddingValues(bottom = bottomContentPadding)
+                    ) {
+                        items(sortedStops, key = { it.id }) { stop ->
+                            StopCard(
+                                stop = stop,
+                                userLat = userLat,
+                                userLon = userLon,
+                                onClick = { onStopClick(stop) }
+                            )
+                        }
+                        item {
+                            // Keep a small spacer to provide breathing room after the last item - the
+                            // contentPadding ensures it's possible to fully reveal the last entry.
+                            Spacer(modifier = Modifier.height(32.dp))
+                        }
                     }
                 }
             }
