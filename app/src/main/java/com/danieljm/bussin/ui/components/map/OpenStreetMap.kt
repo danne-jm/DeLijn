@@ -18,7 +18,6 @@ import com.danieljm.bussin.domain.model.Stop
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.cachemanager.CacheManager
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -57,6 +56,21 @@ fun OpenStreetMap(
     // A callback holder so the AndroidView factory (created once) can call back into the
     // latest-composed lambda which has access to the current `userLocation` value.
     val touchUpCallback = remember { mutableStateOf<(MapView) -> Unit>({}) }
+
+    // Remember the center of the last fetch so we can throttle network requests based on map movement
+    // store last fetch as a simple lat/lon pair to avoid IGeoPoint/GeoPoint mismatches
+    val lastFetchCenter = remember { mutableStateOf<Pair<Double, Double>?>(null) }
+
+    // helper to compute distance in meters between two lat/lon points
+    fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val results = FloatArray(1)
+        try {
+            Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+            return results[0].toDouble()
+        } catch (_: Throwable) {
+            return 0.0
+        }
+    }
 
     AndroidView(
         modifier = modifier,
@@ -113,31 +127,34 @@ fun OpenStreetMap(
             mapView
         },
         update = { mapView ->
-            // update touchUpCallback so it captures the latest `userLocation` and `onMapCenterChanged`
-            touchUpCallback.value = { mv ->
-                try {
-                    val center = mv.mapCenter
-                    val centerLat = center.latitude
-                    val centerLon = center.longitude
-                    // If we have a user location, only invoke the callback when center is sufficiently far
-                    val thresholdMeters = 200.0
-                    if (userLocation != null) {
-                        val results = FloatArray(1)
-                        try {
-                            Location.distanceBetween(userLocation.latitude, userLocation.longitude, centerLat, centerLon, results)
-                            val dist = results[0].toDouble()
-                            if (dist > thresholdMeters) {
-                                try { onMapCenterChanged?.invoke(centerLat, centerLon) } catch (_: Throwable) {}
-                            }
-                        } catch (_: Throwable) {
-                            try { onMapCenterChanged?.invoke(centerLat, centerLon) } catch (_: Throwable) {}
+             // update touchUpCallback so it captures the latest `onMapCenterChanged`
+             touchUpCallback.value = { mv ->
+                 try {
+                    val newCenter = mv.mapCenter
+
+                    // Compute a dynamic threshold based on the current visible map width (east-west distance)
+                    val bbox = mv.boundingBox
+                    val northLat = bbox.latNorth
+                    val eastLon = bbox.lonEast
+                    val westLon = bbox.lonWest
+                    val visibleWidthMeters = try { distanceMeters(northLat, westLon, northLat, eastLon) } catch (_: Throwable) { 1000.0 }
+                    val fetchThresholdMeters = visibleWidthMeters / 4.0 // fetch when panned ~1/4 of view width
+
+                    val last = lastFetchCenter.value
+                    var shouldFetch = true
+                    if (last != null) {
+                        val moved = try { distanceMeters(newCenter.latitude, newCenter.longitude, last.first, last.second) } catch (_: Throwable) { 0.0 }
+                        if (moved < fetchThresholdMeters) {
+                            shouldFetch = false
                         }
-                    } else {
-                        // no user location — let parent decide
-                        try { onMapCenterChanged?.invoke(centerLat, centerLon) } catch (_: Throwable) {}
                     }
-                } catch (_: Throwable) { }
-            }
+
+                    if (shouldFetch) {
+                        lastFetchCenter.value = Pair(newCenter.latitude, newCenter.longitude)
+                        try { onMapCenterChanged?.invoke(newCenter.latitude, newCenter.longitude) } catch (_: Throwable) {}
+                    }
+                 } catch (_: Throwable) { }
+             }
 
             // update user marker and optional one-time auto-centering
             userLocation?.let { loc ->
@@ -267,44 +284,32 @@ fun OpenStreetMap(
     }
 
     // Prefetch tiles into osmdroid's tile cache at most once every 24h to speed up map rendering.
-    LaunchedEffect(composeCtx, userLocation, mapViewRef.value) {
-        try {
-            val prefs = composeCtx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
-            val last = prefs.getLong("last_tile_cache_ms", 0L)
-            val now = System.currentTimeMillis()
-            val oneDayMs = 24L * 60L * 60L * 1000L
-            if (now - last < oneDayMs) return@LaunchedEffect
+    LaunchedEffect(composeCtx, mapViewRef.value) {
+         try {
+             val prefs = composeCtx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+             val last = prefs.getLong("last_tile_cache_ms", 0L)
+             val now = System.currentTimeMillis()
+             val oneDayMs = 24L * 60L * 60L * 1000L
+             if (now - last < oneDayMs) return@LaunchedEffect
 
-            val mv = mapViewRef.value ?: return@LaunchedEffect
+             val mv = mapViewRef.value ?: return@LaunchedEffect
 
-            // Define a small bounding box around either the user's location or the current map center.
-            val latDelta = 0.03
-            val lonDelta = 0.03
-            val bbox = if (userLocation != null) {
-                BoundingBox(
-                    userLocation.latitude + latDelta,
-                    userLocation.longitude - lonDelta,
-                    userLocation.latitude - latDelta,
-                    userLocation.longitude + lonDelta
-                )
-            } else {
-                val c = mv.mapCenter
-                BoundingBox(c.latitude + latDelta, c.longitude - lonDelta, c.latitude - latDelta, c.longitude + lonDelta)
-            }
+            // Use the currently visible bounding box for prefetching — this caches exactly what the user can see.
+            val bbox = try { mv.boundingBox } catch (_: Throwable) { null }
+            if (bbox == null) return@LaunchedEffect
 
-            // Prefetch tiles for a reasonable zoom range around the current zoom.
+            // Prefetch tiles for a zoom range around the current visible zoom
             val currentZoom = try { mv.zoomLevelDouble.toInt() } catch (_: Throwable) { 15 }
-            val minZoom = kotlin.math.max(3, currentZoom - 3)
-            val maxZoom = kotlin.math.min(20, currentZoom + 2)
+            val minZoom = kotlin.math.max(3, currentZoom - 2)
+            val maxZoom = kotlin.math.min(20, currentZoom + 3)
 
             try {
                 val cacheManager = CacheManager(mv)
-                // downloadAreaAsync will populate the tile cache; progress callback is optional
                 cacheManager.downloadAreaAsync(composeCtx, bbox, minZoom, maxZoom)
                 prefs.edit().putLong("last_tile_cache_ms", now).apply()
             } catch (_: Throwable) {
                 // ignore caching errors; it's non-fatal
             }
-        } catch (_: Throwable) { }
-    }
-}
+         } catch (_: Throwable) { }
+     }
+ }

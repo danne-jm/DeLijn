@@ -1,5 +1,6 @@
 package com.danieljm.bussin.ui.screens.stop
 
+import android.location.Location
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,9 +24,40 @@ class StopViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(StopUiState())
     val uiState: StateFlow<StopUiState> = _uiState.asStateFlow()
 
+    // Remember the last fetch center to avoid redundant network calls when the map moves only a little.
+    private var lastFetchLat: Double? = null
+    private var lastFetchLon: Double? = null
+
     fun loadNearbyStops(stop: String, lat: Double, lon: Double, radius: Int? = null, maxAantal: Int? = null) {
-        Log.d("StopViewModel", "loadNearbyStops called: stop=$stop lat=$lat lon=$lon radius=$radius maxAantal=$maxAantal")
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+        // Optimization: avoid refetching when the requested center is very close to the last one.
+        try {
+            val lastLat = lastFetchLat
+            val lastLon = lastFetchLon
+            if (lastLat != null && lastLon != null) {
+                val results = FloatArray(1)
+                Location.distanceBetween(lat, lon, lastLat, lastLon, results)
+                val dist = results[0]
+                // If the map center hasn't moved more than ~50 meters since the last fetch, skip.
+                if (dist < 50f) {
+                    // ensure we are not showing a loader
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                    return
+                }
+            }
+
+            Log.d("StopViewModel", "loadNearbyStops called: stop=$stop lat=$lat lon=$lon radius=$radius maxAantal=$maxAantal")
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+
+            // store last fetch coords now to throttle subsequent calls
+            lastFetchLat = lat
+            lastFetchLon = lon
+        } catch (_: Throwable) {
+            // proceed normally if distance check fails for any reason
+            Log.d("StopViewModel", "loadNearbyStops: distance check failed, proceeding")
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            lastFetchLat = lat
+            lastFetchLon = lon
+        }
         viewModelScope.launch {
             // First, emit cached stops immediately using a small bounding box around the center.
             try {
