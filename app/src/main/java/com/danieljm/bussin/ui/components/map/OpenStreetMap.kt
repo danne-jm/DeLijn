@@ -42,6 +42,9 @@ fun OpenStreetMap(
     // Callback invoked when the user finishes interacting and the map center is changed.
     // Provides the new center's latitude and longitude.
     onMapCenterChanged: ((Double, Double) -> Unit)? = null,
+    // Callback that reports the set of stop IDs that the map is currently rendering as markers.
+    // This allows the parent UI to show the same stops in the BottomSheet.
+    onVisibleStopIdsChanged: ((Set<String>) -> Unit)? = null,
 ) {
     val composeCtx = LocalContext.current
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
@@ -241,6 +244,10 @@ fun OpenStreetMap(
             }
 
             val allowedIds = stopsToRender.mapNotNull { it.id }.toSet()
+
+            // Notify parent which stop IDs are currently rendered on the map so the BottomSheet
+            // can stay synchronized with the visible markers.
+            try { onVisibleStopIdsChanged?.invoke(allowedIds) } catch (_: Throwable) { }
 
             // remove markers for stops no longer present in the allowed set
             val toRemove = stopMarkers.keys.filter { it !in allowedIds }

@@ -59,6 +59,25 @@ fun StopScreen(
 ) {
     val state by stopViewModel.uiState.collectAsState()
 
+    // Track which stop IDs the map is currently rendering as markers. OpenStreetMap will
+    // invoke `onVisibleStopIdsChanged` with the set of IDs; we use that to filter the
+    // BottomSheet so it only lists stops that have markers visible on the map.
+    // Use a nullable set so we can tell the difference between "map hasn't reported yet"
+    // (null) and "map reported an empty set" (emptySet()). When null, fall back to showing
+    // the full state.stops; once the map reports, always honor its visible IDs (even if empty).
+    val visibleStopIds = remember { mutableStateOf<Set<String>?>(null) }
+
+    // The stops to render in the BottomSheet: once the map reports visible IDs, filter to that
+    // set. Before the map reports, show the full set of stops from the ViewModel.
+    val displayedStops = remember(state.stops, visibleStopIds.value) {
+        val ids = visibleStopIds.value
+        if (ids != null) {
+            state.stops.filter { it.id in ids }
+        } else {
+            state.stops
+        }
+    }
+
     // Obtain MapViewModel via Hilt Compose helper so it respects lifecycle and DI
     val mapViewModel: MapViewModel = hiltViewModel()
     val userLocation by mapViewModel.location.collectAsState()
@@ -245,6 +264,11 @@ fun StopScreen(
                             }
                         }
                     }
+                },
+                onVisibleStopIdsChanged = { ids ->
+                    // Update the visible IDs (possibly empty). This makes the BottomSheet
+                    // show exactly the stops that have markers on the map.
+                    visibleStopIds.value = ids
                 }
             )
 
@@ -276,7 +300,7 @@ fun StopScreen(
                     .fillMaxWidth()
                     .padding(scaffoldPadding)
                     .align(Alignment.BottomCenter),
-                stops = state.stops,
+                stops = displayedStops,
                 userLat = userLocation?.latitude,
                 userLon = userLocation?.longitude,
                 onStopClick = { stop -> onStopSelected(stop.id) },
@@ -292,10 +316,11 @@ fun StopScreen(
                 onHeightChanged = { dp -> bottomSheetHeight = dp }
             )
 
-            // Always scroll the list to the top when stops change (cached or network results).
-            LaunchedEffect(state.stops) {
+            // Always scroll the list to the top when the BottomSheet's displayed stops change
+            // (this will react to both the map-visible filter and network/cache updates).
+            LaunchedEffect(displayedStops) {
                 try {
-                    if (state.stops.isNotEmpty()) {
+                    if (displayedStops.isNotEmpty()) {
                         // animate to top for a nicer UX; adjust to instant scroll if desired
                         listState.animateScrollToItem(0)
                     }
