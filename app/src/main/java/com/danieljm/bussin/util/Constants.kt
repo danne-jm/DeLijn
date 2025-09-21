@@ -2,7 +2,6 @@ package com.danieljm.bussin.util
 
 object Constants {
     // Use local proxy base URL. All De Lijn API requests will be routed through this proxy.
-    // The proxy exposes multiple downstream APIs under /api/delijn/... as described in the task.
 
     const val BASE_URL = "https://choice-sweet-tiger.ngrok-free.app/"
 
