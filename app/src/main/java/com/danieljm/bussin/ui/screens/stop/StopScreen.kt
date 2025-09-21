@@ -43,6 +43,7 @@ import com.composables.icons.lucide.Navigation
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
 import com.danieljm.delijn.ui.components.stops.BottomSheet
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -77,6 +78,8 @@ fun StopScreen(
 
     // Keep last map-center triggered fetch time to avoid spamming the server when user pans repeatedly
     val lastCenterFetchMs = remember { mutableStateOf(0L) }
+    // Keep last cached-fetch time to rate-limit cache reads and UI churn
+    val lastCenterCachedMs = remember { mutableStateOf(0L) }
 
     // One-time initial load: when the screen first sees a valid user GPS location, fetch nearby stops once
     var didInitialLoad by rememberSaveable { mutableStateOf(false) }
@@ -85,6 +88,9 @@ fun StopScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+
+    // For scheduling at-most-one pending network fetch when panning rapidly
+    val pendingNetworkFetchTargetMs = remember { mutableStateOf(0L) }
 
     // Permission launcher for fine location (single)
     var hasLocationPermission by remember {
@@ -202,14 +208,42 @@ fun StopScreen(
                 onStopClick = { stop -> onStopSelected(stop.id) },
                 recenterTrigger = recenterTrigger.value,
                 onMapCenterChanged = { lat, lon ->
-                    // Throttle map-center triggered requests to at most once every 2 seconds
                     val now = System.currentTimeMillis()
-                    val cooldownMs = 2_000L
-                    if (now - lastCenterFetchMs.value > cooldownMs) {
+                    val cachedCooldownMs = 500L
+                    val networkCooldownMs = 2_000L
+
+                    // 1) Quick cached display (rate-limited to `cachedCooldownMs`)
+                    if (now - lastCenterCachedMs.value > cachedCooldownMs) {
+                        lastCenterCachedMs.value = now
+                        try {
+                            stopViewModel.loadCachedNearbyStops(lat, lon)
+                        } catch (_: Throwable) {}
+                    }
+
+                    // 2) Network fetch: if allowed now, run immediately; otherwise schedule one after cooldown.
+                    val sinceLastNetwork = now - lastCenterFetchMs.value
+                    if (sinceLastNetwork > networkCooldownMs) {
                         lastCenterFetchMs.value = now
-                        // User moved the map significantly — fetch nearby stops around the new center
                         refreshAnimRequested.value = true
                         stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                    } else {
+                        // schedule one fetch at time targetMs (only keep latest)
+                        val delayMs = networkCooldownMs - sinceLastNetwork
+                        val targetMs = now + delayMs
+                        pendingNetworkFetchTargetMs.value = targetMs
+                        coroutineScope.launch {
+                            delay(delayMs)
+                            // only run if no newer scheduled fetch replaced this
+                            if (pendingNetworkFetchTargetMs.value == targetMs) {
+                                lastCenterFetchMs.value = System.currentTimeMillis()
+                                refreshAnimRequested.value = true
+                                try {
+                                    stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                                } catch (_: Throwable) {}
+                                // clear pending marker
+                                pendingNetworkFetchTargetMs.value = 0L
+                            }
+                        }
                     }
                 }
             )
@@ -257,6 +291,16 @@ fun StopScreen(
                 listState = listState,
                 onHeightChanged = { dp -> bottomSheetHeight = dp }
             )
+
+            // Always scroll the list to the top when stops change (cached or network results).
+            LaunchedEffect(state.stops) {
+                try {
+                    if (state.stops.isNotEmpty()) {
+                        // animate to top for a nicer UX; adjust to instant scroll if desired
+                        listState.animateScrollToItem(0)
+                    }
+                } catch (_: Throwable) {}
+            }
 
             // Floating Action Button positioned above the bottom sheet at its top-right
             FloatingActionButton(

@@ -55,6 +55,9 @@ fun OpenStreetMap(
     // Keep markers for stops keyed by stop.id
     val stopMarkers = remember { mutableStateMapOf<String, Marker>() }
 
+    // Cap number of markers to reduce rendering pressure on low-end devices
+    val maxMarkers = 40 // lowered to ease phone performance; tune if needed
+
     // A callback holder so the AndroidView factory (created once) can call back into the
     // latest-composed lambda which has access to the current `userLocation` value.
     val touchUpCallback = remember { mutableStateOf<(MapView) -> Unit>({}) }
@@ -218,8 +221,29 @@ fun OpenStreetMap(
             // Sync stop markers: add/update/remove as necessary
             val currentIds = stops.mapNotNull(Stop::id).toSet()
 
-            // remove markers for stops no longer present
-            val toRemove = stopMarkers.keys.filter { it !in currentIds }
+            // Determine which stops to render: prioritize those closest to the current map center
+            val center = try { mapView.mapCenter } catch (_: Throwable) { null }
+            val stopsToRender = if (center != null) {
+                stops
+                    .mapNotNull { s ->
+                        val sLat = s.latitude
+                        val sLon = s.longitude
+                        if (sLat == null || sLon == null) return@mapNotNull null
+                        val dist = try { distanceMeters(center.latitude, center.longitude, sLat, sLon) } catch (_: Throwable) { Double.MAX_VALUE }
+                        Pair(s, dist)
+                    }
+                    .sortedBy { it.second }
+                    .take(maxMarkers)
+                    .map { it.first }
+            } else {
+                // if we don't have a center, just take up to maxMarkers entries with coords
+                stops.filter { it.latitude != null && it.longitude != null }.take(maxMarkers)
+            }
+
+            val allowedIds = stopsToRender.mapNotNull { it.id }.toSet()
+
+            // remove markers for stops no longer present in the allowed set
+            val toRemove = stopMarkers.keys.filter { it !in allowedIds }
             toRemove.forEach { id ->
                 try {
                     val m = stopMarkers.remove(id)
@@ -227,8 +251,8 @@ fun OpenStreetMap(
                 } catch (_: Throwable) { }
             }
 
-            // add or update markers for current stops (only when lat/lon are present)
-            stops.forEach { stop ->
+            // add or update markers for the selected stops
+            stopsToRender.forEach { stop ->
                 val sid = stop.id
                 val lat = stop.latitude
                 val lon = stop.longitude

@@ -110,6 +110,33 @@ class StopViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Read cached nearby stops around the provided center and immediately emit them into UI state.
+     * This method intentionally does not alter the last-fetch throttling markers so callers can
+     * show cached results quickly while a separate network fetch is scheduled by the caller.
+     */
+    fun loadCachedNearbyStops(lat: Double, lon: Double) {
+        viewModelScope.launch {
+            try {
+                val delta = 0.02
+                val minLat = lat - delta
+                val maxLat = lat + delta
+                val minLon = lon - delta
+                val maxLon = lon + delta
+                val cachedRes = getCachedNearbyStops(minLat, maxLat, minLon, maxLon)
+                if (cachedRes.isSuccess) {
+                    val cached = cachedRes.getOrNull() ?: emptyList()
+                    if (cached.isNotEmpty()) {
+                        // Show cached stops quickly. Keep isLoading as true to indicate a background refresh may follow.
+                        _uiState.value = _uiState.value.copy(isLoading = true, stops = cached)
+                    }
+                }
+            } catch (_: Exception) {
+                // swallow cache errors - non-fatal
+            }
+        }
+    }
+
     fun loadStopDetails(stopId: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
