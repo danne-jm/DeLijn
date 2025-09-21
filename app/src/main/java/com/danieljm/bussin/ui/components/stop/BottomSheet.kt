@@ -60,7 +60,14 @@ import kotlin.math.sqrt
 @Composable
 fun BottomSheet(
     modifier: Modifier = Modifier,
-    maxHeightRatio: Float = 0.85f,
+    // targetFabFromBottomRatio: where the FAB center should sit measured from the bottom (0..1).
+    // e.g. 0.7 means the FAB center will be at 70% up from the bottom (i.e. 30% from the top).
+    targetFabFromBottomRatio: Float = 0.70f,
+    // expected FAB size and extra spacing used by StopScreen; adjust if your FAB size or padding differs
+    fabSize: Dp = 56.dp,
+    fabBottomSpacing: Dp = 16.dp,
+    // fallback maximum allowed ratio in case computed value is too large
+    maxHeightRatio: Float = 0.95f,
     onHeightChanged: ((Dp) -> Unit)? = null,
     stops: List<Stop> = emptyList(),
     userLat: Double? = null,
@@ -77,9 +84,19 @@ fun BottomSheet(
     // Use the real window container height directly; LocalWindowInfo is available on supported platforms
     val screenHeightPx = windowInfo.containerSize.height.toFloat()
 
-    val collapsedPx = with(density) { 160.dp.toPx() }
-    val expandedPx = screenHeightPx * maxHeightRatio
-    // 50% of screen height as initial height
+    val collapsedPx = with(density) { 172.dp.toPx() }
+    val fabHpx = with(density) { fabSize.toPx() }
+    val extraPadPx = with(density) { fabBottomSpacing.toPx() }
+    // Because `StopScreen` positions the FAB with bottom padding = sheetHeight + fabBottomSpacing
+    // the FAB center Y (from top) becomes: centerY_top = screenHeight - (sheetHeight + extraPadPx) - fabHpx/2
+    // Let targetFromBottom = targetFabFromBottomRatio. Then centerY_top = (1 - targetFromBottom) * screenHeight.
+    // Solving for sheetHeight gives: sheetHeight = targetFromBottom * screenHeight - fabH/2 - extraPadPx
+    val t = targetFabFromBottomRatio.coerceIn(0.0f, 1.0f)
+    val computedExpandedPx = t * screenHeightPx - (fabHpx / 2f) - extraPadPx
+    // Clamp computedExpandedPx to a sane range and respect a fallback maxHeightRatio cap
+    val expandedPx = computedExpandedPx.coerceIn(collapsedPx, screenHeightPx * maxHeightRatio)
+
+    // 50% of allowed sheet height as initial height
     val initialPx = ((expandedPx - collapsedPx) / 2f + collapsedPx).coerceIn(collapsedPx, expandedPx)
 
     // Use rememberSaveable to preserve the height across navigation
@@ -110,9 +127,9 @@ fun BottomSheet(
         }
     }
 
-    LaunchedEffect(heightDp, animatedHeightDp, isDragging) {
-        val reportHeight = if (isDragging) heightDp else animatedHeightDp
-        onHeightChanged?.invoke(reportHeight)
+    // This is the key change: always report the animated height.
+    LaunchedEffect(animatedHeightDp) {
+        onHeightChanged?.invoke(animatedHeightDp)
     }
 
     LaunchedEffect(shouldAnimateRefresh) {
@@ -195,7 +212,7 @@ fun BottomSheet(
                         .size(28.dp)
                         .padding(start = 8.dp)
                         .graphicsLayer { rotationZ = rotation.value }
-                        .clickable(enabled = onRefresh != null && !rotation.isRunning) {
+                        .clickable(enabled = onRefresh != null && !rotation.isRunning && !isLoading) {
                             onRefresh?.invoke()
                         }
                 )
@@ -228,13 +245,13 @@ fun BottomSheet(
                         )
                     }
                     item {
-                            // Keep a small spacer to provide breathing room after the last item - the
-                            // contentPadding ensures it's possible to fully reveal the last entry.
-                            Spacer(modifier = Modifier.height(32.dp))
-                        }
+                        // Keep a small spacer to provide breathing room after the last item - the
+                        // contentPadding ensures it's possible to fully reveal the last entry.
+                        Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
             }
+        }
     }
 }
 
