@@ -13,11 +13,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import com.danieljm.bussin.domain.model.Stop
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.cachemanager.CacheManager
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -84,15 +86,53 @@ fun OpenStreetMap(
                 controller.setZoom(zoom)
                 controller.setCenter(GeoPoint(50.873322, 4.525903))
 
+                // Ensure the MapView doesn't automatically fit system windows — we want it full-bleed
+                try { this.fitsSystemWindows = false } catch (_: Throwable) {}
+
+                // Make sure window inset callbacks don't add padding; keep everything full-bleed so tiles
+                // can draw under the status bar / navigation bar. We still position overlays in Compose.
+                try {
+                    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+                        try { v.setPadding(0, 0, 0, 0) } catch (_: Throwable) {}
+                        insets
+                    }
+                } catch (_: Throwable) {}
+
                 // Respect system top inset so tiles render into the safe area (avoid white strip at top)
                 try {
                     val insets = ViewCompat.getRootWindowInsets(this)
                     val top = insets?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())?.top ?: 0
                     if (top > 0) {
-                        // set padding so the MapView renders tiles properly under the top inset
-                        setPadding(0, top, 0, 0)
+                        // Instead of shifting the content down with padding (which can leave a white strip),
+                        // allow the MapView to draw into the system inset area and ensure it won't clip to padding.
+                        // This prevents tiles from being pushed down leaving an unrendered background at the top.
+                        try {
+                            // disable clipping so children/tile renderers can draw into the padding area
+                            this.clipToPadding = false
+                        } catch (_: Throwable) {}
+                        // Ensure background is transparent so tiles are visible under system bars
+                        try { this.setBackgroundColor(android.graphics.Color.TRANSPARENT) } catch (_: Throwable) {}
+
+                        // If the layout or window requires extra offset, prefer using view's translationY
+                        // rather than padding to avoid interfering with tile rendering. Default: no padding.
+                        // However, keep a small top padding fallback (0) to be explicit.
+                        try { setPadding(0, 0, 0, 0) } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
+
+                // Force zero padding / no clipping and re-layout so the internal tile renderer
+                // recalculates with the full, unpadded view size. This helps when system
+                // window insets previously caused a white strip at the top.
+                try {
+                    this.fitsSystemWindows = false
+                } catch (_: Throwable) {}
+                try {
+                    this.clipToPadding = false
+                } catch (_: Throwable) {}
+                try { this.setPadding(0, 0, 0, 0) } catch (_: Throwable) {}
+                try { this.setBackgroundColor(android.graphics.Color.TRANSPARENT) } catch (_: Throwable) {}
+                try { this.invalidate() } catch (_: Throwable) {}
+                try { this.requestLayout() } catch (_: Throwable) {}
 
                 // detect user touch to prevent forced recentering after the first auto-center
                 setOnTouchListener { v, event ->
@@ -122,6 +162,13 @@ fun OpenStreetMap(
             }
             mapView.overlays.add(initialUserMarker)
             userMarkerRef.value = initialUserMarker
+
+            // Ensure the MapView lifecycle is resumed so tile rendering and internal state are active.
+            try { mapView.onResume() } catch (_: Throwable) {}
+
+            // Ensure the view will draw and re-apply window insets so the tile renderer recalculates.
+            try { mapView.setWillNotDraw(false) } catch (_: Throwable) {}
+            try { ViewCompat.requestApplyInsets(mapView) } catch (_: Throwable) {}
 
             mapViewRef.value = mapView
             mapView
@@ -259,7 +306,7 @@ fun OpenStreetMap(
                             currentZoom += delta
                             try { mv.controller.setZoom(currentZoom) } catch (_: Throwable) {}
                             iterations++
-                            kotlinx.coroutines.delay(delayMs)
+                            delay(delayMs)
                         }
                         // Ensure exact final zoom
                         try { mv.controller.setZoom(targetZoom) } catch (_: Throwable) {}
@@ -294,9 +341,36 @@ fun OpenStreetMap(
 
              val mv = mapViewRef.value ?: return@LaunchedEffect
 
-            // Use the currently visible bounding box for prefetching — this caches exactly what the user can see.
+            // Use the currently visible bounding box for prefetching — this caches slightly beyond what the user sees.
             val bbox = try { mv.boundingBox } catch (_: Throwable) { null }
             if (bbox == null) return@LaunchedEffect
+
+            // Expand bounding box by a small margin so tiles slightly outside the viewport are prefetched.
+            val marginFraction = 0.20 // 20% extra in each direction
+            val latNorth = bbox.latNorth
+            val latSouth = bbox.latSouth
+            val lonEast = bbox.lonEast
+            val lonWest = bbox.lonWest
+            val latSpan = latNorth - latSouth
+            val lonSpan = lonEast - lonWest
+
+            val expNorth = (latNorth + latSpan * marginFraction).coerceAtMost(90.0)
+            val expSouth = (latSouth - latSpan * marginFraction).coerceAtLeast(-90.0)
+            // Ensure longitudes stay within [-180, 180]; keep simple wrap handling
+            val expEastRaw = lonEast + lonSpan * marginFraction
+            val expWestRaw = lonWest - lonSpan * marginFraction
+            val expEast = when {
+                expEastRaw > 180.0 -> expEastRaw - 360.0
+                expEastRaw < -180.0 -> expEastRaw + 360.0
+                else -> expEastRaw
+            }
+            val expWest = when {
+                expWestRaw > 180.0 -> expWestRaw - 360.0
+                expWestRaw < -180.0 -> expWestRaw + 360.0
+                else -> expWestRaw
+            }
+
+            val expandedBbox = BoundingBox(expNorth, expEast, expSouth, expWest)
 
             // Prefetch tiles for a zoom range around the current visible zoom
             val currentZoom = try { mv.zoomLevelDouble.toInt() } catch (_: Throwable) { 15 }
@@ -305,8 +379,8 @@ fun OpenStreetMap(
 
             try {
                 val cacheManager = CacheManager(mv)
-                cacheManager.downloadAreaAsync(composeCtx, bbox, minZoom, maxZoom)
-                prefs.edit().putLong("last_tile_cache_ms", now).apply()
+                cacheManager.downloadAreaAsync(composeCtx, expandedBbox, minZoom, maxZoom)
+                prefs.edit { putLong("last_tile_cache_ms", now) }
             } catch (_: Throwable) {
                 // ignore caching errors; it's non-fatal
             }

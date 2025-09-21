@@ -191,7 +191,9 @@ fun StopScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { scaffoldPadding ->
-        Box(modifier = modifier.padding(scaffoldPadding).fillMaxSize()) {
+        // Keep the map full-bleed (no scaffold padding) so the underlying MapView can render into
+        // the system insets. Apply `scaffoldPadding` only to overlay UI (controls, sheets, FAB)
+        Box(modifier = modifier.fillMaxSize()) {
             // Full-screen map; pass the recenter trigger so OpenStreetMap will center when incremented
             OpenStreetMap(
                 modifier = Modifier.fillMaxSize(),
@@ -214,8 +216,10 @@ fun StopScreen(
 
             // Top controls overlay: only show the enable-permission button when location isn't enabled.
             Row(
+                // Apply scaffold/system padding to the top controls so they avoid the status bar
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(scaffoldPadding)
                     .padding(12.dp)
                     .align(Alignment.TopCenter),
                 verticalAlignment = Alignment.CenterVertically,
@@ -233,7 +237,11 @@ fun StopScreen(
             // BottomSheet overlay on top of the map showing stop cards
             val listState = rememberLazyListState()
             BottomSheet(
-                modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                // Apply scaffold padding so bottom sheet avoids navigation bars / insets
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(scaffoldPadding)
+                    .align(Alignment.BottomCenter),
                 stops = state.stops,
                 userLat = userLocation?.latitude,
                 userLon = userLocation?.longitude,
@@ -282,8 +290,10 @@ fun StopScreen(
                 containerColor = Color(0xFF1D2124),
                 contentColor = Color(0xFFBDBDBD),
                 shape = RoundedCornerShape(32.dp),
+                // Apply scaffold padding so FAB sits above system nav bar, then add custom offsets
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
+                    .padding(scaffoldPadding)
                     .padding(end = 16.dp, bottom = bottomSheetHeight + 16.dp)
             ) {
                 Icon(Lucide.Navigation, contentDescription = "Center on my location")

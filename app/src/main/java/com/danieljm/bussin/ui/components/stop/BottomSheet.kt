@@ -84,7 +84,7 @@ fun BottomSheet(
     // Use the real window container height directly; LocalWindowInfo is available on supported platforms
     val screenHeightPx = windowInfo.containerSize.height.toFloat()
 
-    val collapsedPx = with(density) { 172.dp.toPx() }
+    val collapsedPx = with(density) { 176.dp.toPx() }
     val fabHpx = with(density) { fabSize.toPx() }
     val extraPadPx = with(density) { fabBottomSpacing.toPx() }
     // Because `StopScreen` positions the FAB with bottom padding = sheetHeight + fabBottomSpacing
