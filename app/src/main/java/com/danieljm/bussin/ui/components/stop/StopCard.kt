@@ -23,14 +23,19 @@ import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MapPin
 import com.danieljm.bussin.domain.model.Stop
-import kotlin.math.*
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 @Composable
 fun StopCard(
     stop: Stop,
     userLat: Double?,
     userLon: Double?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    isHighlighted: Boolean = false,
 ) {
     // Only compute distance when both user coords and stop coords are available
     val distance = if (userLat != null && userLon != null && stop.latitude != null && stop.longitude != null) {
@@ -43,7 +48,8 @@ fun StopCard(
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF2A2D32)
+            // Use a subtle grayish highlight that fits the dark color scheme
+            containerColor = if (isHighlighted) Color(0xFF3C3F41) else Color(0xFF2A2D32)
         ),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)

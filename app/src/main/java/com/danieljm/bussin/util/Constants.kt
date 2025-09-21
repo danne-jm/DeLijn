@@ -1,4 +1,4 @@
-package com.danieljm.bussin.utils
+package com.danieljm.bussin.util
 
 object Constants {
     // Use local proxy base URL. All De Lijn API requests will be routed through this proxy.

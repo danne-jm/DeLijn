@@ -4,7 +4,7 @@ import com.danieljm.bussin.data.remote.api.BussinApiService
 import com.danieljm.bussin.data.remote.auth.AuthInterceptor
 import com.danieljm.bussin.data.remote.auth.AuthTokenProvider
 import com.danieljm.bussin.data.remote.auth.InMemoryAuthTokenProvider
-import com.danieljm.bussin.utils.Constants
+import com.danieljm.bussin.util.Constants
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module

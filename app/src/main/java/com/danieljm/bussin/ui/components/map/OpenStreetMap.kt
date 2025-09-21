@@ -2,6 +2,7 @@ package com.danieljm.bussin.ui.components.map
 
 import android.content.Context
 import android.location.Location
+import android.util.Log
 import android.view.MotionEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,6 +46,11 @@ fun OpenStreetMap(
     // Callback that reports the set of stop IDs that the map is currently rendering as markers.
     // This allows the parent UI to show the same stops in the BottomSheet.
     onVisibleStopIdsChanged: ((Set<String>) -> Unit)? = null,
+    // Request the map to center on a specific stop. When non-null, the map will animate
+    // to the stop's coordinates (if available) and then invoke `onCenterHandled` so the
+    // caller can clear the request.
+    centerOnStop: com.danieljm.bussin.domain.model.Stop? = null,
+    onCenterHandled: (() -> Unit)? = null,
 ) {
     val composeCtx = LocalContext.current
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
@@ -64,6 +70,8 @@ fun OpenStreetMap(
     // A callback holder so the AndroidView factory (created once) can call back into the
     // latest-composed lambda which has access to the current `userLocation` value.
     val touchUpCallback = remember { mutableStateOf<(MapView) -> Unit>({}) }
+    // Tap coordinate callback: receives latitude and longitude of the ACTION_UP event on the map
+    val tapLatLonCallback = remember { mutableStateOf<(Double, Double) -> Unit>({ _, _ -> }) }
 
     // Remember the center of the last fetch so we can throttle network requests based on map movement
     // store last fetch as a simple lat/lon pair to avoid IGeoPoint/GeoPoint mismatches
@@ -149,6 +157,12 @@ fun OpenStreetMap(
                         }
                         if (event.action == MotionEvent.ACTION_UP) {
                             try { v.performClick() } catch (_: Throwable) { }
+                            // Compute lat/lon of the touch point and notify the tap callback
+                            try {
+                                val proj = this.projection
+                                val geo = proj.fromPixels(event.x.toInt(), event.y.toInt())
+                                v.post { try { tapLatLonCallback.value(geo.latitude, geo.longitude) } catch (_: Throwable) {} }
+                            } catch (_: Throwable) {}
                             // Post a touch-up callback so it runs on the view thread after interaction
                             try { v.post { touchUpCallback.value(this) } } catch (_: Throwable) {}
                         }
@@ -178,9 +192,24 @@ fun OpenStreetMap(
 
             mapViewRef.value = mapView
             mapView
-        },
-        update = { mapView ->
-             // update touchUpCallback so it captures the latest `onMapCenterChanged`
+         },
+         update = { mapView ->
+            // If parent requested centering on a specific stop, animate to it and notify handled
+            try {
+                val stopReq = centerOnStop
+                if (stopReq != null) {
+                    val sLat = stopReq.latitude
+                    val sLon = stopReq.longitude
+                    if (sLat != null && sLon != null) {
+                        try { mapView.controller.animateTo(GeoPoint(sLat, sLon)) } catch (_: Throwable) {}
+                        // Optionally zoom closer for clarity
+                        try { mapView.controller.setZoom(18.0) } catch (_: Throwable) {}
+                    }
+                    try { onCenterHandled?.invoke() } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+
+            // update touchUpCallback so it captures the latest `onMapCenterChanged`
              touchUpCallback.value = { mv ->
                  try {
                     val newCenter = mv.mapCenter
@@ -277,6 +306,7 @@ fun OpenStreetMap(
                             icon = mapView.context.getDrawable(com.danieljm.bussin.R.drawable.delijn_stop)
                             title = stop.name
                             setOnMarkerClickListener { _, _ ->
+                                try { Log.d("OpenStreetMap", "marker click for stop=${stop.id}") } catch (_: Throwable) {}
                                 onStopClick(stop)
                                 true
                             }
@@ -290,7 +320,7 @@ fun OpenStreetMap(
             // redraw map overlays after sync
             try { mapView.invalidate() } catch (_: Throwable) { }
         }
-    )
+     )
 
     // When parent requests a recenter (counter increment), animate to user's current position once.
     LaunchedEffect(recenterTrigger) {
@@ -363,27 +393,47 @@ fun OpenStreetMap(
 
     // Prefetch tiles into osmdroid's tile cache at most once every 24h to speed up map rendering.
     LaunchedEffect(composeCtx, mapViewRef.value) {
-         try {
-             val prefs = composeCtx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
-             val last = prefs.getLong("last_tile_cache_ms", 0L)
-             val now = System.currentTimeMillis()
-             val oneDayMs = 24L * 60L * 60L * 1000L
-             if (now - last < oneDayMs) return@LaunchedEffect
+          try {
+              val prefs = composeCtx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+              val last = prefs.getLong("last_tile_cache_ms", 0L)
+              val now = System.currentTimeMillis()
+              val oneDayMs = 24L * 60L * 60L * 1000L
+              if (now - last < oneDayMs) return@LaunchedEffect
 
-             val mv = mapViewRef.value ?: return@LaunchedEffect
+              val mv = mapViewRef.value ?: return@LaunchedEffect
 
-            // Use the currently visible bounding box for prefetching — this caches slightly beyond what the user sees.
-            val bbox = try { mv.boundingBox } catch (_: Throwable) { null }
-            if (bbox == null) return@LaunchedEffect
+             // Use the currently visible bounding box for prefetching — this caches slightly beyond what the user sees.
+             val bbox = try { mv.boundingBox } catch (_: Throwable) { null }
+             if (bbox == null) return@LaunchedEffect
 
-            // Expand bounding box by a small margin so tiles slightly outside the viewport are prefetched.
-            val marginFraction = 0.20 // 20% extra in each direction
-            val latNorth = bbox.latNorth
-            val latSouth = bbox.latSouth
-            val lonEast = bbox.lonEast
-            val lonWest = bbox.lonWest
-            val latSpan = latNorth - latSouth
-            val lonSpan = lonEast - lonWest
+            // Avoid attempting bulk download for online tile sources that disallow it (e.g. Mapnik/OpenStreetMap).
+            // CacheManager.downloadAreaAsync internally runs an AsyncTask which may throw a
+            // TileSourcePolicyException on background thread and crash the app if the tile
+            // source does not permit bulk downloads. Skip prefetch for those sources.
+            try {
+                val ts = try { mv.tileProvider.tileSource } catch (_: Throwable) { null }
+                // `name` is a Java getter; call it as a function in Kotlin to avoid ambiguity
+                val tsName = try { ts?.name() ?: "" } catch (_: Throwable) { "" }
+                 // Common online sources (Mapnik/OpenStreetMap) should be skipped.
+                val isOnlineMapnik = tsName.contains("Mapnik", ignoreCase = true) || tsName.contains("OpenStreetMap", ignoreCase = true)
+                if (isOnlineMapnik) {
+                    // Do not attempt to bulk-download tiles for this tile source.
+                    prefs.edit { putLong("last_tile_cache_ms", now) }
+                    return@LaunchedEffect
+                }
+            } catch (_: Throwable) {
+                // If any error occurs while checking the tile source, skip prefetch to be safe.
+                return@LaunchedEffect
+            }
+
+             // Expand bounding box by a small margin so tiles slightly outside the viewport are prefetched.
+             val marginFraction = 0.20 // 20% extra in each direction
+             val latNorth = bbox.latNorth
+             val latSouth = bbox.latSouth
+             val lonEast = bbox.lonEast
+             val lonWest = bbox.lonWest
+             val latSpan = latNorth - latSouth
+             val lonSpan = lonEast - lonWest
 
             val expNorth = (latNorth + latSpan * marginFraction).coerceAtMost(90.0)
             val expSouth = (latSouth - latSpan * marginFraction).coerceAtLeast(-90.0)
@@ -410,11 +460,17 @@ fun OpenStreetMap(
 
             try {
                 val cacheManager = CacheManager(mv)
-                cacheManager.downloadAreaAsync(composeCtx, expandedBbox, minZoom, maxZoom)
-                prefs.edit { putLong("last_tile_cache_ms", now) }
+                try {
+                    cacheManager.downloadAreaAsync(composeCtx, expandedBbox, minZoom, maxZoom)
+                    prefs.edit { putLong("last_tile_cache_ms", now) }
+                } catch (ex: Throwable) {
+                    // If the tile source policy forbids bulk download or any other error
+                    // happens inside the async task, catch and ignore it to avoid crashing.
+                    try { Log.w("OpenStreetMap", "Tile prefetch skipped: ${ex.message}") } catch (_: Throwable) {}
+                }
             } catch (_: Throwable) {
-                // ignore caching errors; it's non-fatal
+                // ignore top-level errors; it's non-fatal
             }
-         } catch (_: Throwable) { }
-     }
- }
+          } catch (_: Throwable) { }
+      }
+}

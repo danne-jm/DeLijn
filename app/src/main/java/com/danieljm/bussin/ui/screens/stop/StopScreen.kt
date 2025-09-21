@@ -40,8 +40,10 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Navigation
+import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
+import com.danieljm.bussin.util.calculateDistance
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,6 +61,9 @@ fun StopScreen(
 ) {
     val state by stopViewModel.uiState.collectAsState()
 
+    // Android context for permission checks and starting location updates
+    val ctx = LocalContext.current
+
     // Track which stop IDs the map is currently rendering as markers. OpenStreetMap will
     // invoke `onVisibleStopIdsChanged` with the set of IDs; we use that to filter the
     // BottomSheet so it only lists stops that have markers visible on the map.
@@ -69,7 +74,7 @@ fun StopScreen(
 
     // The stops to render in the BottomSheet: once the map reports visible IDs, filter to that
     // set. Before the map reports, show the full set of stops from the ViewModel.
-    val displayedStops = remember(state.stops, visibleStopIds.value) {
+    val filteredStops = remember(state.stops, visibleStopIds.value) {
         val ids = visibleStopIds.value
         if (ids != null) {
             state.stops.filter { it.id in ids }
@@ -78,11 +83,56 @@ fun StopScreen(
         }
     }
 
+    // Compute the same distance-based sort the BottomSheet uses so indexes line up
+    val sortedDisplayedStops = remember(filteredStops, state.stops, /* user location observed below */) {
+        // We'll actually sort inside a derived remember that depends on userLocation below to avoid
+        // using a stale user location; this placeholder will be replaced in the next remember below.
+        filteredStops
+    }
+
+    // Remember a center request from the BottomSheet. When non-null, OpenStreetMap will
+    // animate to that stop and then the `onCenterHandled` callback will clear it.
+    val centerRequestedStop = remember { mutableStateOf<Stop?>(null) }
+
+    // Lazy list state for the BottomSheet list; declared early so map marker clicks can
+    // instruct the list to scroll to a specific stop card.
+    val listState = rememberLazyListState()
+
+    // Request object to tell BottomSheet to scroll to a specific stop id. We keep
+    // it separate from `centerRequestedStop` which is used to ask the map to center.
+    val scrollRequestStopId = remember { mutableStateOf<String?>(null) }
+
+    // Track expanded state and highlighted stop id for the BottomSheet
+    val bottomSheetExpanded = remember { mutableStateOf(false) }
+    val highlightedStopId = remember { mutableStateOf<String?>(null) }
+
     // Obtain MapViewModel via Hilt Compose helper so it respects lifecycle and DI
     val mapViewModel: MapViewModel = hiltViewModel()
     val userLocation by mapViewModel.location.collectAsState()
 
-    val ctx = LocalContext.current
+    // recompute sortedDisplayedStops when userLocation changes
+    val sortedDisplayedStopsFinal = remember(filteredStops, userLocation) {
+        val lat = userLocation?.latitude
+        val lon = userLocation?.longitude
+        if (lat != null && lon != null) {
+            filteredStops.sortedBy { stop ->
+                val sLat = stop.latitude
+                val sLon = stop.longitude
+                if (sLat != null && sLon != null) {
+                    calculateDistance(lat, lon, sLat, sLon)
+                } else {
+                    Double.MAX_VALUE
+                }
+            }
+        } else {
+            filteredStops
+        }
+    }
+
+    // A lightweight suppression so that a recent manual scroll (triggered by tapping a map marker)
+    // isn't immediately overwritten by the automatic "scroll to top on displayed-stops change".
+    val lastManualScrollMs = remember { mutableStateOf(0L) }
+    val manualScrollSuppressMs = 1500L
 
     // Trigger for BottomSheet refresh animation
     val refreshAnimRequested = remember { mutableStateOf(false) }
@@ -110,6 +160,9 @@ fun StopScreen(
 
     // For scheduling at-most-one pending network fetch when panning rapidly
     val pendingNetworkFetchTargetMs = remember { mutableStateOf(0L) }
+
+    // Suppress map-center triggered fetches for a short window after a manual map marker tap
+    val ignoreCenterFetchUntilMs = remember { mutableStateOf(0L) }
 
     // Permission launcher for fine location (single)
     var hasLocationPermission by remember {
@@ -224,10 +277,39 @@ fun StopScreen(
                 modifier = Modifier.fillMaxSize(),
                 userLocation = userLocation,
                 stops = state.stops,
-                onStopClick = { stop -> onStopSelected(stop.id) },
+                onStopClick = { stop ->
+                    // When user taps a map marker, expand the sheet, highlight the card, and scroll to it
+                    try {
+                        bottomSheetExpanded.value = true
+                        highlightedStopId.value = stop.id
+
+                        // Mark a short window where map-center triggered fetches will be ignored so
+                        // the BottomSheet list doesn't immediately get replaced by a new nearby-stops fetch
+                        // while we're trying to scroll to a specific item.
+                        val suppressWindowMs = 600L
+                        ignoreCenterFetchUntilMs.value = System.currentTimeMillis() + suppressWindowMs
+
+                        // Request the BottomSheet to scroll to the stop ID. BottomSheet will
+                        // compute the index using its own sorted list and perform the scroll.
+                        scrollRequestStopId.value = stop.id
+                        lastManualScrollMs.value = System.currentTimeMillis()
+
+                        // clear highlight after a short pulse
+                        coroutineScope.launch {
+                            highlightedStopId.value = null
+                        }
+                    } catch (_: Throwable) {}
+                    // Also notify external handler
+                    onStopSelected(stop.id)
+                },
                 recenterTrigger = recenterTrigger.value,
                 onMapCenterChanged = { lat, lon ->
                     val now = System.currentTimeMillis()
+
+                    // Respect suppression window set when user tapped a marker: skip fetches that were
+                    // caused by the tap-centering animation so we don't overwrite the sheet's list.
+                    if (now < ignoreCenterFetchUntilMs.value) return@OpenStreetMap
+
                     val cachedCooldownMs = 500L
                     val networkCooldownMs = 2_000L
 
@@ -269,7 +351,10 @@ fun StopScreen(
                     // Update the visible IDs (possibly empty). This makes the BottomSheet
                     // show exactly the stops that have markers on the map.
                     visibleStopIds.value = ids
-                }
+                },
+                // Center request from BottomSheet card taps
+                centerOnStop = centerRequestedStop.value,
+                onCenterHandled = { centerRequestedStop.value = null }
             )
 
             // Top controls overlay: only show the enable-permission button when location isn't enabled.
@@ -293,17 +378,29 @@ fun StopScreen(
             }
 
             // BottomSheet overlay on top of the map showing stop cards
-            val listState = rememberLazyListState()
             BottomSheet(
                 // Apply scaffold padding so bottom sheet avoids navigation bars / insets
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(scaffoldPadding)
                     .align(Alignment.BottomCenter),
-                stops = displayedStops,
+                stops = sortedDisplayedStopsFinal,
                 userLat = userLocation?.latitude,
                 userLon = userLocation?.longitude,
-                onStopClick = { stop -> onStopSelected(stop.id) },
+                // Ask the BottomSheet to scroll to a stop id when set by the map marker tap.
+                scrollToStopId = scrollRequestStopId.value,
+                onScrollHandled = { scrollRequestStopId.value = null },
+                onStopClick = { stop ->
+                    // Request the map to center on this stop, expand sheet (already visible) and highlight
+                    centerRequestedStop.value = stop
+                    highlightedStopId.value = stop.id
+                    // clear highlight after a short duration
+                    coroutineScope.launch {
+                        try { delay(1500) } catch (_: Throwable) {}
+                        highlightedStopId.value = null
+                    }
+                    onStopSelected(stop.id)
+                },
                 onRefresh = {
                     // When user taps refresh in the sheet header, run the same logic and animate
                     refreshAnimRequested.value = true
@@ -313,16 +410,20 @@ fun StopScreen(
                 shouldAnimateRefresh = refreshAnimRequested.value,
                 onRefreshAnimationComplete = { refreshAnimRequested.value = false },
                 listState = listState,
+                expanded = bottomSheetExpanded.value,
+                highlightedStopId = highlightedStopId.value,
                 onHeightChanged = { dp -> bottomSheetHeight = dp }
             )
 
-            // Always scroll the list to the top when the BottomSheet's displayed stops change
-            // (this will react to both the map-visible filter and network/cache updates).
-            LaunchedEffect(displayedStops) {
+            // Only auto-scroll to top when the displayed list changes if we haven't recently
+            // performed a manual scroll triggered by tapping a map marker.
+            LaunchedEffect(sortedDisplayedStopsFinal) {
                 try {
-                    if (displayedStops.isNotEmpty()) {
-                        // animate to top for a nicer UX; adjust to instant scroll if desired
-                        listState.animateScrollToItem(0)
+                    if (sortedDisplayedStopsFinal.isNotEmpty()) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastManualScrollMs.value > manualScrollSuppressMs) {
+                            listState.animateScrollToItem(0)
+                        }
                     }
                 } catch (_: Throwable) {}
             }

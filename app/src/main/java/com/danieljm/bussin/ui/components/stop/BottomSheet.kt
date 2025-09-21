@@ -51,17 +51,14 @@ import androidx.core.view.WindowInsetsCompat
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
 import com.danieljm.bussin.domain.model.Stop
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
+import com.danieljm.bussin.util.calculateDistance
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BottomSheet(
     modifier: Modifier = Modifier,
     // targetFabFromBottomRatio: where the FAB center should sit measured from the bottom (0..1).
-    // e.g. 0.7 means the FAB center will be at 70% up from the bottom (i.e. 30% from the top).
+    // e.g. 0.7 means the FAB center will sit at 70% up from the bottom (i.e. 30% from the top).
     targetFabFromBottomRatio: Float = 0.70f,
     // expected FAB size and extra spacing used by StopScreen; adjust if your FAB size or padding differs
     fabSize: Dp = 56.dp,
@@ -78,11 +75,20 @@ fun BottomSheet(
     shouldAnimateRefresh: Boolean = false,
     onRefreshAnimationComplete: (() -> Unit)? = null,
     listState: LazyListState,
+    // Request the BottomSheet to scroll to the stop with this ID. The sheet will
+    // compute the index from its own sorted list (sortedStops) and perform the scroll.
+    scrollToStopId: String? = null,
+    // Called after the scroll request has been handled so callers can clear the request.
+    onScrollHandled: (() -> Unit)? = null,
     // Optional slots for header and body. If null, the BottomSheet falls back to the existing
     // header (title + refresh icon) and body (list of stops) implementations so current
     // callers continue to work without changes.
     headerContent: (@Composable (rotationValue: Float, isRefreshing: Boolean, onRefresh: (() -> Unit)?) -> Unit)? = null,
     bodyContent: (@Composable (listState: LazyListState, bottomContentPadding: Dp) -> Unit)? = null,
+    // When true, the sheet should expand to its computed expanded height.
+    expanded: Boolean = false,
+    // If provided, the ID of the stop that should be visually highlighted in the list.
+    highlightedStopId: String? = null,
 ) {
     val density = LocalDensity.current
     val windowInfo = LocalWindowInfo.current
@@ -136,12 +142,30 @@ fun BottomSheet(
         onHeightChanged?.invoke(animatedHeightDp)
     }
 
+    // React to external expand/collapse requests by setting the internal heightPx.
+    LaunchedEffect(expanded) {
+        heightPx = if (expanded) expandedPx else collapsedPx
+    }
+
     LaunchedEffect(shouldAnimateRefresh) {
         if (shouldAnimateRefresh) {
             rotation.snapTo(0f) // Start from 0
             rotation.animateTo(360f, animationSpec = tween(durationMillis = 800))
             rotation.snapTo(0f) // Reset after animation
             onRefreshAnimationComplete?.invoke()
+        }
+    }
+
+    // If external code requested the sheet to scroll to a stop id, handle it here using
+    // the sheet's authoritative `sortedStops` ordering so indexes match what's rendered.
+    LaunchedEffect(scrollToStopId, sortedStops) {
+        val id = scrollToStopId
+        if (id != null) {
+            val idx = sortedStops.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                try { listState.animateScrollToItem(idx) } catch (_: Throwable) {}
+            }
+            onScrollHandled?.invoke()
         }
     }
 
@@ -252,7 +276,8 @@ fun BottomSheet(
                                 stop = stop,
                                 userLat = userLat,
                                 userLon = userLon,
-                                onClick = { onStopClick(stop) }
+                                onClick = { onStopClick(stop) },
+                                isHighlighted = highlightedStopId == stop.id,
                             )
                         }
                         item {
@@ -265,17 +290,4 @@ fun BottomSheet(
             }
         }
     }
-}
-
-private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val earthRadius = 6371.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-
-    val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-            sin(dLon / 2) * sin(dLon / 2)
-
-    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return earthRadius * c
 }
